@@ -32,6 +32,13 @@ func _unhandled_input(event: InputEvent) -> void:
 	# Toggle fly mode with F key
 	if event is InputEventKey and event.pressed and event.keycode == KEY_F:
 		is_flying = !is_flying
+		# Disable collision in fly mode, enable in walk mode
+		if is_flying:
+			collision_layer = 0
+			collision_mask = 0
+		else:
+			collision_layer = 1
+			collision_mask = 1
 		print("Fly mode: ", "ON" if is_flying else "OFF")
 
 func _physics_process(delta: float) -> void:
