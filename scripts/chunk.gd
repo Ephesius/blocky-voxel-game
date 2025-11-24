@@ -53,11 +53,6 @@ func _update_mesh() -> void:
 	var st = SurfaceTool.new()
 	st.begin(Mesh.PRIMITIVE_TRIANGLES)
 	
-	# Simple material (placeholder)
-	var material = StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	st.set_material(material)
-	
 	for x in range(CHUNK_SIZE):
 		for y in range(CHUNK_SIZE):
 			for z in range(CHUNK_SIZE):
@@ -65,9 +60,18 @@ func _update_mesh() -> void:
 				if type != BlockType.AIR:
 					_create_block_faces(st, x, y, z, type)
 	
+	# Don't generate normals - we want sharp edges, not smooth
 	st.index()
-	mesh_instance.mesh = st.commit()
-	# Create collision
+	
+	var mesh = st.commit()
+	
+	# Create material with no backface culling for debugging
+	var material = StandardMaterial3D.new()
+	material.vertex_color_use_as_albedo = true
+	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	mesh.surface_set_material(0, material)
+	
+	mesh_instance.mesh = mesh
 	mesh_instance.create_trimesh_collision()
 
 func _create_block_faces(st: SurfaceTool, x: int, y: int, z: int, type: int) -> void:
@@ -79,72 +83,69 @@ func _create_block_faces(st: SurfaceTool, x: int, y: int, z: int, type: int) -> 
 	
 	st.set_color(color)
 	
-	# Check neighbors (Simple Culling)
-	# Top
+	# Define the 8 corners of the cube
+	var v000 = Vector3(x, y, z)
+	var v100 = Vector3(x + 1, y, z)
+	var v010 = Vector3(x, y + 1, z)
+	var v110 = Vector3(x + 1, y + 1, z)
+	var v001 = Vector3(x, y, z + 1)
+	var v101 = Vector3(x + 1, y, z + 1)
+	var v011 = Vector3(x, y + 1, z + 1)
+	var v111 = Vector3(x + 1, y + 1, z + 1)
+	
+	# Top face (Y+)
 	if _is_transparent(x, y + 1, z):
-		st.set_normal(Vector3.UP)
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y + 1, z))
-		st.set_uv(Vector2(1, 0)); st.add_vertex(Vector3(x + 1, y + 1, z))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y + 1, z + 1))
-		
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y + 1, z))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y + 1, z + 1))
-		st.set_uv(Vector2(0, 1)); st.add_vertex(Vector3(x, y + 1, z + 1))
-
-	# Bottom
+		st.add_vertex(v010)
+		st.add_vertex(v110)
+		st.add_vertex(v111)
+		st.add_vertex(v010)
+		st.add_vertex(v111)
+		st.add_vertex(v011)
+	
+	# Bottom face (Y-)
 	if _is_transparent(x, y - 1, z):
-		st.set_normal(Vector3.DOWN)
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y, z + 1))
-		st.set_uv(Vector2(1, 0)); st.add_vertex(Vector3(x + 1, y, z + 1))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y, z))
-		
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y, z + 1))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y, z))
-		st.set_uv(Vector2(0, 1)); st.add_vertex(Vector3(x, y, z))
-
-	# Left
-	if _is_transparent(x - 1, y, z):
-		st.set_normal(Vector3.LEFT)
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y, z + 1))
-		st.set_uv(Vector2(1, 0)); st.add_vertex(Vector3(x, y, z))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x, y + 1, z))
-		
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y, z + 1))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x, y + 1, z))
-		st.set_uv(Vector2(0, 1)); st.add_vertex(Vector3(x, y + 1, z + 1))
-
-	# Right
-	if _is_transparent(x + 1, y, z):
-		st.set_normal(Vector3.RIGHT)
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x + 1, y + 1, z))
-		st.set_uv(Vector2(1, 0)); st.add_vertex(Vector3(x + 1, y, z))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y, z + 1))
-		
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x + 1, y + 1, z))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y, z + 1))
-		st.set_uv(Vector2(0, 1)); st.add_vertex(Vector3(x + 1, y + 1, z + 1))
-
-	# Front
+		st.add_vertex(v000)
+		st.add_vertex(v001)
+		st.add_vertex(v101)
+		st.add_vertex(v000)
+		st.add_vertex(v101)
+		st.add_vertex(v100)
+	
+	# Front face (Z+)
 	if _is_transparent(x, y, z + 1):
-		st.set_normal(Vector3.BACK)
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y + 1, z + 1))
-		st.set_uv(Vector2(1, 0)); st.add_vertex(Vector3(x + 1, y + 1, z + 1))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y, z + 1))
-		
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x, y + 1, z + 1))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x + 1, y, z + 1))
-		st.set_uv(Vector2(0, 1)); st.add_vertex(Vector3(x, y, z + 1))
-
-	# Back
+		st.add_vertex(v001)
+		st.add_vertex(v011)
+		st.add_vertex(v111)
+		st.add_vertex(v001)
+		st.add_vertex(v111)
+		st.add_vertex(v101)
+	
+	# Back face (Z-)
 	if _is_transparent(x, y, z - 1):
-		st.set_normal(Vector3.FORWARD)
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x + 1, y + 1, z))
-		st.set_uv(Vector2(1, 0)); st.add_vertex(Vector3(x, y + 1, z))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x, y, z))
-		
-		st.set_uv(Vector2(0, 0)); st.add_vertex(Vector3(x + 1, y + 1, z))
-		st.set_uv(Vector2(1, 1)); st.add_vertex(Vector3(x, y, z))
-		st.set_uv(Vector2(0, 1)); st.add_vertex(Vector3(x + 1, y, z))
+		st.add_vertex(v100)
+		st.add_vertex(v110)
+		st.add_vertex(v010)
+		st.add_vertex(v100)
+		st.add_vertex(v010)
+		st.add_vertex(v000)
+	
+	# Right face (X+)
+	if _is_transparent(x + 1, y, z):
+		st.add_vertex(v100)
+		st.add_vertex(v101)
+		st.add_vertex(v111)
+		st.add_vertex(v100)
+		st.add_vertex(v111)
+		st.add_vertex(v110)
+	
+	# Left face (X-)
+	if _is_transparent(x - 1, y, z):
+		st.add_vertex(v000)
+		st.add_vertex(v010)
+		st.add_vertex(v011)
+		st.add_vertex(v000)
+		st.add_vertex(v011)
+		st.add_vertex(v001)
 
 func _get_index(x: int, y: int, z: int) -> int:
 	return x + (y * CHUNK_SIZE) + (z * CHUNK_SIZE * CHUNK_SIZE)

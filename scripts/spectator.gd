@@ -1,19 +1,20 @@
 extends Camera3D
 
 @export var move_speed: float = 10.0
-@export var look_sensitivity: float = 0.002
+@export var look_sensitivity: float = 0.003
 @export var sprint_multiplier: float = 2.0
 
-var _velocity: Vector3 = Vector3.ZERO
+var yaw: float = 0.0
+var pitch: float = 0.0
 
 func _ready() -> void:
 	Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
-func _input(event: InputEvent) -> void:
+func _unhandled_input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
-		rotate_y(-event.relative.x * look_sensitivity)
-		rotate_x(-event.relative.y * look_sensitivity)
-		rotation.x = clamp(rotation.x, deg_to_rad(-90), deg_to_rad(90))
+		yaw -= event.relative.x * look_sensitivity
+		pitch -= event.relative.y * look_sensitivity
+		pitch = clamp(pitch, -PI/2, PI/2)
 	
 	if event.is_action_pressed("ui_cancel"):
 		if Input.get_mouse_mode() == Input.MOUSE_MODE_CAPTURED:
@@ -22,33 +23,43 @@ func _input(event: InputEvent) -> void:
 			Input.set_mouse_mode(Input.MOUSE_MODE_CAPTURED)
 
 func _process(delta: float) -> void:
-	var input_dir := Input.get_vector("ui_left", "ui_right", "ui_up", "ui_down")
-	var direction := (transform.basis * Vector3(input_dir.x, 0, input_dir.y)).normalized()
+	# Apply rotation
+	rotation.y = yaw
+	rotation.x = pitch
 	
-	var current_speed := move_speed
-	if Input.is_key_pressed(KEY_SHIFT):
-		current_speed *= sprint_multiplier
-		
+	# Get input
+	var input_dir := Vector3.ZERO
+	
+	if Input.is_key_pressed(KEY_W):
+		input_dir.z += 1
+	if Input.is_key_pressed(KEY_S):
+		input_dir.z -= 1
+	if Input.is_key_pressed(KEY_A):
+		input_dir.x -= 1
+	if Input.is_key_pressed(KEY_D):
+		input_dir.x += 1
+	
 	# Vertical movement
-	var vertical_input := 0.0
 	if Input.is_key_pressed(KEY_E):
-		vertical_input += 1.0
+		input_dir.y += 1
 	if Input.is_key_pressed(KEY_Q):
-		vertical_input -= 1.0
+		input_dir.y -= 1
 	
-	# Apply movement relative to camera orientation for horizontal, global up/down for vertical
-	# Actually for a free cam, we usually want to move in the direction we are looking
-	# But standard WASD is usually "planar" relative to view, or full free flight.
-	# Let's do full free flight (moving forward moves in the direction the camera is facing)
+	# Normalize to prevent faster diagonal movement
+	if input_dir.length() > 0:
+		input_dir = input_dir.normalized()
 	
-	var forward = -global_transform.basis.z
-	var right = global_transform.basis.x
-	var up = global_transform.basis.y
+	# Apply speed
+	var speed := move_speed
+	if Input.is_key_pressed(KEY_SHIFT):
+		speed *= sprint_multiplier
 	
-	var move_vec = (right * input_dir.x + forward * -input_dir.y).normalized()
+	# Transform direction to world space (only for horizontal movement)
+	var h_rot := rotation.y
+	var forward := Vector3(sin(h_rot), 0, cos(h_rot))
+	var right := Vector3(cos(h_rot), 0, -sin(h_rot))
 	
-	# Add vertical movement (Q/E) relative to world up, or camera up? 
-	# Usually Q/E is absolute up/down in world space for level editors/spectators
-	var vertical_vec = Vector3.UP * vertical_input
+	var movement := forward * -input_dir.z + right * input_dir.x
+	movement.y = input_dir.y  # Keep vertical movement in world space
 	
-	global_position += (move_vec + vertical_vec) * current_speed * delta
+	global_position += movement * speed * delta
