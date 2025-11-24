@@ -43,9 +43,9 @@ func _physics_process(delta: float) -> void:
 	var input_dir := Vector3.ZERO
 	
 	if Input.is_key_pressed(KEY_W):
-		input_dir.z -= 1
-	if Input.is_key_pressed(KEY_S):
 		input_dir.z += 1
+	if Input.is_key_pressed(KEY_S):
+		input_dir.z -= 1
 	if Input.is_key_pressed(KEY_A):
 		input_dir.x -= 1
 	if Input.is_key_pressed(KEY_D):
@@ -86,7 +86,7 @@ func _handle_walking(delta: float, input_dir: Vector3) -> void:
 	velocity.x = movement.x * speed
 	velocity.z = movement.z * speed
 
-func _handle_flying(delta: float, input_dir: Vector3) -> void:
+func _handle_flying(_delta: float, input_dir: Vector3) -> void:
 	# Vertical movement in fly mode
 	if Input.is_key_pressed(KEY_SPACE):
 		input_dir.y += 1
