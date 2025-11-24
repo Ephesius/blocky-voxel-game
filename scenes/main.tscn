@@ -1,7 +1,16 @@
-[gd_scene format=3 uid="uid://br6yx7ry5dnl1"]
+[gd_scene load_steps=4 format=3 uid="uid://br6yx7ry5dnl1"]
+
+[sub_resource type="Environment" id="Environment_sgp6g"]
+
+[sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_o5qli"]
+
+[sub_resource type="Compositor" id="Compositor_0wfyh"]
 
 [node name="Main" type="Node3D"]
 
 [node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_sgp6g")
+camera_attributes = SubResource("CameraAttributesPractical_o5qli")
+compositor = SubResource("Compositor_0wfyh")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
