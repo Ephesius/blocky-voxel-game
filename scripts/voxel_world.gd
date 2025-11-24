@@ -1,18 +1,18 @@
 extends Node3D
 
-const CHUNK_SIZE = 16
-var chunk_script = preload("res://scripts/chunk.gd")
+const CHUNK_SIZE: int = 16
+var chunk_script: GDScript = preload("res://scripts/chunk.gd")
 
 func _ready() -> void:
 	# Spawn a 4x4 grid of chunks centered around origin
-	var grid_size = 4
-	var half_grid = grid_size / 2
+	var grid_size: int = 4
+	var half_grid: int = grid_size / 2
 	
 	# First pass: Create all chunks and add them to the scene
-	var chunks = []
-	for x in range(grid_size):
-		for z in range(grid_size):
-			var chunk = chunk_script.new()
+	var chunks: Array[Chunk] = []
+	for x: int in range(grid_size):
+		for z: int in range(grid_size):
+			var chunk: Chunk = chunk_script.new()
 			
 			# Set chunk position (in chunk coordinates)
 			chunk.chunk_pos = Vector2i(x - half_grid, z - half_grid)
@@ -21,7 +21,7 @@ func _ready() -> void:
 			chunk.world = self
 			
 			# Set world position (in world coordinates)
-			var world_pos = Vector3(
+			var world_pos: Vector3 = Vector3(
 				(x - half_grid) * CHUNK_SIZE,
 				0,
 				(z - half_grid) * CHUNK_SIZE

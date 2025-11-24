@@ -1,7 +1,6 @@
-extends Node3D
-class_name Chunk
+class_name Chunk extends Node3D
 
-const CHUNK_SIZE = 16
+const CHUNK_SIZE: int = 16
 
 # Voxel types
 enum BlockType {
@@ -42,21 +41,21 @@ func generate_chunk() -> void:
 
 func _generate_data() -> void:
 	# Calculate world offset for this chunk
-	var world_x_offset = chunk_pos.x * CHUNK_SIZE
-	var world_z_offset = chunk_pos.y * CHUNK_SIZE
+	var world_x_offset: int = chunk_pos.x * CHUNK_SIZE
+	var world_z_offset: int = chunk_pos.y * CHUNK_SIZE
 	
-	for x in range(CHUNK_SIZE):
-		for z in range(CHUNK_SIZE):
+	for x: int in range(CHUNK_SIZE):
+		for z: int in range(CHUNK_SIZE):
 			# Use world coordinates for noise sampling
-			var world_x = world_x_offset + x
-			var world_z = world_z_offset + z
+			var world_x: int = world_x_offset + x
+			var world_z: int = world_z_offset + z
 			
 			# Generate height based on noise (range 0-24)
-			var height = int((noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5 * 24)
+			var height: int = int((noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5 * 24)
 			
-			for y in range(CHUNK_SIZE):
+			for y: int in range(CHUNK_SIZE):
 				if y < height:
-					var index = _get_index(x, y, z)
+					var index: int = _get_index(x, y, z)
 					if y == height - 1:
 						voxels[index] = BlockType.GRASS
 					elif y > height - 4:
@@ -65,23 +64,23 @@ func _generate_data() -> void:
 						voxels[index] = BlockType.STONE
 
 func _update_mesh() -> void:
-	var st = SurfaceTool.new()
-	st.begin(Mesh.PRIMITIVE_TRIANGLES)
+	var surface_tool: SurfaceTool = SurfaceTool.new()
+	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	
-	for x in range(CHUNK_SIZE):
-		for y in range(CHUNK_SIZE):
-			for z in range(CHUNK_SIZE):
-				var type = _get_voxel(x, y, z)
+	for x: int in range(CHUNK_SIZE):
+		for y: int in range(CHUNK_SIZE):
+			for z: int in range(CHUNK_SIZE):
+				var type: int = _get_voxel(x, y, z)
 				if type != BlockType.AIR:
-					_create_block_faces(st, x, y, z, type)
+					_create_block_faces(surface_tool, x, y, z, type)
 	
 	# Don't generate normals - we want sharp edges, not smooth
-	st.index()
+	surface_tool.index()
 	
-	var mesh = st.commit()
+	var mesh = surface_tool.commit()
 	
 	# Create material with backface culling enabled
-	var material = StandardMaterial3D.new()
+	var material: StandardMaterial3D = StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
 	material.cull_mode = BaseMaterial3D.CULL_BACK
 	mesh.surface_set_material(0, material)
@@ -89,78 +88,78 @@ func _update_mesh() -> void:
 	mesh_instance.mesh = mesh
 	mesh_instance.create_trimesh_collision()
 
-func _create_block_faces(st: SurfaceTool, x: int, y: int, z: int, type: int) -> void:
-	var color = Color.WHITE
+func _create_block_faces(surface_tool: SurfaceTool, x: int, y: int, z: int, type: int) -> void:
+	var color: Color = Color.WHITE
 	match type:
 		BlockType.GRASS: color = Color.GREEN
 		BlockType.DIRT: color = Color.SADDLE_BROWN
 		BlockType.STONE: color = Color.GRAY
 	
-	st.set_color(color)
+	surface_tool.set_color(color)
 	
 	# Define the 8 corners of the cube
-	var v000 = Vector3(x, y, z)
-	var v100 = Vector3(x + 1, y, z)
-	var v010 = Vector3(x, y + 1, z)
-	var v110 = Vector3(x + 1, y + 1, z)
-	var v001 = Vector3(x, y, z + 1)
-	var v101 = Vector3(x + 1, y, z + 1)
-	var v011 = Vector3(x, y + 1, z + 1)
-	var v111 = Vector3(x + 1, y + 1, z + 1)
+	var v000: Vector3 = Vector3(x, y, z)
+	var v100: Vector3 = Vector3(x + 1, y, z)
+	var v010: Vector3 = Vector3(x, y + 1, z)
+	var v110: Vector3 = Vector3(x + 1, y + 1, z)
+	var v001: Vector3 = Vector3(x, y, z + 1)
+	var v101: Vector3 = Vector3(x + 1, y, z + 1)
+	var v011: Vector3 = Vector3(x, y + 1, z + 1)
+	var v111: Vector3 = Vector3(x + 1, y + 1, z + 1)
 	
 	# Top face (Y+)
 	if _is_transparent(x, y + 1, z):
-		st.add_vertex(v010)
-		st.add_vertex(v110)
-		st.add_vertex(v111)
-		st.add_vertex(v010)
-		st.add_vertex(v111)
-		st.add_vertex(v011)
+		surface_tool.add_vertex(v010)
+		surface_tool.add_vertex(v110)
+		surface_tool.add_vertex(v111)
+		surface_tool.add_vertex(v010)
+		surface_tool.add_vertex(v111)
+		surface_tool.add_vertex(v011)
 	
 	# Bottom face (Y-)
 	if _is_transparent(x, y - 1, z):
-		st.add_vertex(v000)
-		st.add_vertex(v001)
-		st.add_vertex(v101)
-		st.add_vertex(v000)
-		st.add_vertex(v101)
-		st.add_vertex(v100)
+		surface_tool.add_vertex(v000)
+		surface_tool.add_vertex(v001)
+		surface_tool.add_vertex(v101)
+		surface_tool.add_vertex(v000)
+		surface_tool.add_vertex(v101)
+		surface_tool.add_vertex(v100)
 	
 	# Front face (Z+)
 	if _is_transparent(x, y, z + 1):
-		st.add_vertex(v001)
-		st.add_vertex(v011)
-		st.add_vertex(v111)
-		st.add_vertex(v001)
-		st.add_vertex(v111)
-		st.add_vertex(v101)
+		surface_tool.add_vertex(v001)
+		surface_tool.add_vertex(v011)
+		surface_tool.add_vertex(v111)
+		surface_tool.add_vertex(v001)
+		surface_tool.add_vertex(v111)
+		surface_tool.add_vertex(v101)
 	
 	# Back face (Z-)
 	if _is_transparent(x, y, z - 1):
-		st.add_vertex(v100)
-		st.add_vertex(v110)
-		st.add_vertex(v010)
-		st.add_vertex(v100)
-		st.add_vertex(v010)
-		st.add_vertex(v000)
+		surface_tool.add_vertex(v100)
+		surface_tool.add_vertex(v110)
+		surface_tool.add_vertex(v010)
+		surface_tool.add_vertex(v100)
+		surface_tool.add_vertex(v010)
+		surface_tool.add_vertex(v000)
 	
 	# Right face (X+)
 	if _is_transparent(x + 1, y, z):
-		st.add_vertex(v100)
-		st.add_vertex(v101)
-		st.add_vertex(v111)
-		st.add_vertex(v100)
-		st.add_vertex(v111)
-		st.add_vertex(v110)
+		surface_tool.add_vertex(v100)
+		surface_tool.add_vertex(v101)
+		surface_tool.add_vertex(v111)
+		surface_tool.add_vertex(v100)
+		surface_tool.add_vertex(v111)
+		surface_tool.add_vertex(v110)
 	
 	# Left face (X-)
 	if _is_transparent(x - 1, y, z):
-		st.add_vertex(v000)
-		st.add_vertex(v010)
-		st.add_vertex(v011)
-		st.add_vertex(v000)
-		st.add_vertex(v011)
-		st.add_vertex(v001)
+		surface_tool.add_vertex(v000)
+		surface_tool.add_vertex(v010)
+		surface_tool.add_vertex(v011)
+		surface_tool.add_vertex(v000)
+		surface_tool.add_vertex(v011)
+		surface_tool.add_vertex(v001)
 
 func _get_index(x: int, y: int, z: int) -> int:
 	return x + (y * CHUNK_SIZE) + (z * CHUNK_SIZE * CHUNK_SIZE)
@@ -176,9 +175,9 @@ func _get_voxel(x: int, y: int, z: int) -> int:
 	
 	# Out of bounds in X or Z - check neighboring chunk if we have a world reference
 	if world != null:
-		var neighbor_chunk_pos = Vector2i(chunk_pos.x, chunk_pos.y)  # Explicit copy
-		var local_x = x
-		var local_z = z
+		var neighbor_chunk_pos: Vector2i = Vector2i(chunk_pos.x, chunk_pos.y)  # Explicit copy
+		var local_x: int = x
+		var local_z: int = z
 		
 		# Only handle single-axis neighbors (not diagonal)
 		# Adjust chunk position and local coordinates for X
@@ -198,13 +197,13 @@ func _get_voxel(x: int, y: int, z: int) -> int:
 			local_z = 0  # First row of neighbor
 		
 		# Find the neighbor chunk
-		var chunk_name = "Chunk_%d_%d" % [neighbor_chunk_pos.x, neighbor_chunk_pos.y]
-		var neighbor = world.get_node_or_null(chunk_name)
+		var chunk_name: String = "Chunk_%d_%d" % [neighbor_chunk_pos.x, neighbor_chunk_pos.y]
+		var neighbor: Node = world.get_node_or_null(chunk_name)
 		
 		if neighbor != null:
 			# Direct array access to avoid recursion
 			if local_x >= 0 and local_x < CHUNK_SIZE and local_z >= 0 and local_z < CHUNK_SIZE:
-				var idx = local_x + (y * CHUNK_SIZE) + (local_z * CHUNK_SIZE * CHUNK_SIZE)
+				var idx: int = local_x + (y * CHUNK_SIZE) + (local_z * CHUNK_SIZE * CHUNK_SIZE)
 				return neighbor.voxels[idx]
 	
 	# Default to AIR if no neighbor

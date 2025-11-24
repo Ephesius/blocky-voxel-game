@@ -40,7 +40,7 @@ func _physics_process(delta: float) -> void:
 	camera.rotation.x = pitch
 	
 	# Get input direction
-	var input_dir := Vector3.ZERO
+	var input_dir: Vector3 = Vector3.ZERO
 	
 	if Input.is_key_pressed(KEY_W):
 		input_dir.z += 1
@@ -68,16 +68,16 @@ func _handle_walking(delta: float, input_dir: Vector3) -> void:
 		velocity.y = jump_velocity
 	
 	# Get movement speed
-	var speed := walk_speed
+	var speed: float = walk_speed
 	if Input.is_key_pressed(KEY_SHIFT):
 		speed = sprint_speed
 	
 	# Calculate movement direction (only horizontal)
-	var h_rot := rotation.y
-	var forward := Vector3(sin(h_rot), 0, cos(h_rot))
-	var right := Vector3(cos(h_rot), 0, -sin(h_rot))
+	var h_rot: float = rotation.y
+	var forward: Vector3 = Vector3(sin(h_rot), 0, cos(h_rot))
+	var right: Vector3 = Vector3(cos(h_rot), 0, -sin(h_rot))
 	
-	var movement := forward * -input_dir.z + right * input_dir.x
+	var movement: Vector3 = forward * -input_dir.z + right * input_dir.x
 	
 	if movement.length() > 0:
 		movement = movement.normalized()
@@ -94,16 +94,16 @@ func _handle_flying(_delta: float, input_dir: Vector3) -> void:
 		input_dir.y -= 1
 	
 	# Get movement speed
-	var speed := fly_speed
+	var speed: float = fly_speed
 	if Input.is_key_pressed(KEY_SHIFT):
 		speed = fly_sprint_speed
 	
 	# Calculate movement direction
-	var h_rot := rotation.y
-	var forward := Vector3(sin(h_rot), 0, cos(h_rot))
-	var right := Vector3(cos(h_rot), 0, -sin(h_rot))
+	var h_rot: float = rotation.y
+	var forward: Vector3 = Vector3(sin(h_rot), 0, cos(h_rot))
+	var right: Vector3 = Vector3(cos(h_rot), 0, -sin(h_rot))
 	
-	var movement := forward * -input_dir.z + right * input_dir.x
+	var movement: Vector3 = forward * -input_dir.z + right * input_dir.x
 	movement.y = input_dir.y
 	
 	if movement.length() > 0:
