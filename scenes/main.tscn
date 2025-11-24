@@ -14,3 +14,5 @@ camera_attributes = SubResource("CameraAttributesPractical_o5qli")
 compositor = SubResource("Compositor_0wfyh")
 
 [node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+
+[node name="Camera3D" type="Camera3D" parent="."]
