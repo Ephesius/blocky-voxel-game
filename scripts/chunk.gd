@@ -14,54 +14,25 @@ enum BlockType {
 # For a 16x16x16 chunk, a flat array is fast and simple.
 # Size = 16^3 = 4096 integers.
 var voxels: Array[int] = []
-var chunk_pos: Vector2i  # Chunk position in chunk coordinates (not world)
+var chunk_pos: Vector3i  # Chunk position in chunk coordinates (not world)
 var world: Node3D  # Reference to voxel_world for neighbor lookups
 
 var mesh_instance: MeshInstance3D
-static var noise: FastNoiseLite  # Shared across all chunks
 
 func _ready() -> void:
 	mesh_instance = MeshInstance3D.new()
 	add_child(mesh_instance)
 	
-	# Initialize noise if not already done
-	if noise == null:
-		noise = FastNoiseLite.new()
-		noise.seed = 12345  # Fixed seed for consistent world
-		noise.frequency = 0.02
-	
-	# Initialize empty voxels
+	# Initialize empty voxels array
 	voxels.resize(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE)
 	voxels.fill(BlockType.AIR)
 
-func generate_chunk() -> void:
-	# Generate terrain data and mesh
-	_generate_data()
+func set_voxel_data(data: Array[int]) -> void:
+	# Set the voxel data for this chunk
+	voxels = data
 	_update_mesh()
 
-func _generate_data() -> void:
-	# Calculate world offset for this chunk
-	var world_x_offset: int = chunk_pos.x * CHUNK_SIZE
-	var world_z_offset: int = chunk_pos.y * CHUNK_SIZE
-	
-	for x: int in range(CHUNK_SIZE):
-		for z: int in range(CHUNK_SIZE):
-			# Use world coordinates for noise sampling
-			var world_x: int = world_x_offset + x
-			var world_z: int = world_z_offset + z
-			
-			# Generate height based on noise (range 0-24)
-			var height: int = int((noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5 * 24)
-			
-			for y: int in range(CHUNK_SIZE):
-				if y < height:
-					var index: int = _get_index(x, y, z)
-					if y == height - 1:
-						voxels[index] = BlockType.GRASS
-					elif y > height - 4:
-						voxels[index] = BlockType.DIRT
-					else:
-						voxels[index] = BlockType.STONE
+
 
 func _update_mesh() -> void:
 	var surface_tool: SurfaceTool = SurfaceTool.new()
@@ -175,7 +146,7 @@ func _get_voxel(x: int, y: int, z: int) -> int:
 	
 	# Out of bounds in X or Z - check neighboring chunk if we have a world reference
 	if world != null:
-		var neighbor_chunk_pos: Vector2i = Vector2i(chunk_pos.x, chunk_pos.y)  # Explicit copy
+		var neighbor_chunk_pos: Vector3i = Vector3i(chunk_pos.x, chunk_pos.y, chunk_pos.z)  # Explicit copy
 		var local_x: int = x
 		var local_z: int = z
 		
@@ -190,14 +161,14 @@ func _get_voxel(x: int, y: int, z: int) -> int:
 		
 		# Adjust chunk position and local coordinates for Z
 		if z < 0:
-			neighbor_chunk_pos.y -= 1
+			neighbor_chunk_pos.z -= 1
 			local_z = CHUNK_SIZE - 1  # Last row of neighbor
 		elif z >= CHUNK_SIZE:
-			neighbor_chunk_pos.y += 1
+			neighbor_chunk_pos.z += 1
 			local_z = 0  # First row of neighbor
 		
 		# Find the neighbor chunk
-		var chunk_name: String = "Chunk_%d_%d" % [neighbor_chunk_pos.x, neighbor_chunk_pos.y]
+		var chunk_name: String = "Chunk_%d_%d_%d" % [neighbor_chunk_pos.x, neighbor_chunk_pos.y, neighbor_chunk_pos.z]
 		var neighbor: Node = world.get_node_or_null(chunk_name)
 		
 		if neighbor != null:
