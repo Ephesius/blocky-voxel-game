@@ -48,16 +48,21 @@ func _update_mesh() -> void:
 	# Don't generate normals - we want sharp edges, not smooth
 	surface_tool.index()
 	
-	var mesh = surface_tool.commit()
+	var mesh: ArrayMesh = surface_tool.commit()
 	
-	# Create material with backface culling enabled
-	var material: StandardMaterial3D = StandardMaterial3D.new()
-	material.vertex_color_use_as_albedo = true
-	material.cull_mode = BaseMaterial3D.CULL_BACK
-	mesh.surface_set_material(0, material)
-	
-	mesh_instance.mesh = mesh
-	mesh_instance.create_trimesh_collision()
+	# Only set material and collision if the mesh has surfaces
+	if mesh.get_surface_count() > 0:
+		# Create material with backface culling enabled
+		var material: StandardMaterial3D = StandardMaterial3D.new()
+		material.vertex_color_use_as_albedo = true
+		material.cull_mode = BaseMaterial3D.CULL_BACK
+		mesh.surface_set_material(0, material)
+		
+		mesh_instance.mesh = mesh
+		mesh_instance.create_trimesh_collision()
+	else:
+		# Empty chunk - just set an empty mesh
+		mesh_instance.mesh = mesh
 
 func _create_block_faces(surface_tool: SurfaceTool, x: int, y: int, z: int, type: int) -> void:
 	var color: Color = Color.WHITE
@@ -140,32 +145,36 @@ func _get_voxel(x: int, y: int, z: int) -> int:
 	if x >= 0 and x < CHUNK_SIZE and y >= 0 and y < CHUNK_SIZE and z >= 0 and z < CHUNK_SIZE:
 		return voxels[_get_index(x, y, z)]
 	
-	# Y out of bounds - always return AIR
-	if y < 0 or y >= CHUNK_SIZE:
-		return BlockType.AIR
-	
-	# Out of bounds in X or Z - check neighboring chunk if we have a world reference
+	# Out of bounds - check neighboring chunk if we have a world reference
 	if world != null:
 		var neighbor_chunk_pos: Vector3i = Vector3i(chunk_pos.x, chunk_pos.y, chunk_pos.z)  # Explicit copy
 		var local_x: int = x
+		var local_y: int = y
 		var local_z: int = z
 		
-		# Only handle single-axis neighbors (not diagonal)
 		# Adjust chunk position and local coordinates for X
 		if x < 0:
 			neighbor_chunk_pos.x -= 1
-			local_x = CHUNK_SIZE - 1  # Last column of neighbor
+			local_x = CHUNK_SIZE - 1
 		elif x >= CHUNK_SIZE:
 			neighbor_chunk_pos.x += 1
-			local_x = 0  # First column of neighbor
+			local_x = 0
+		
+		# Adjust chunk position and local coordinates for Y
+		if y < 0:
+			neighbor_chunk_pos.y -= 1
+			local_y = CHUNK_SIZE - 1
+		elif y >= CHUNK_SIZE:
+			neighbor_chunk_pos.y += 1
+			local_y = 0
 		
 		# Adjust chunk position and local coordinates for Z
 		if z < 0:
 			neighbor_chunk_pos.z -= 1
-			local_z = CHUNK_SIZE - 1  # Last row of neighbor
+			local_z = CHUNK_SIZE - 1
 		elif z >= CHUNK_SIZE:
 			neighbor_chunk_pos.z += 1
-			local_z = 0  # First row of neighbor
+			local_z = 0
 		
 		# Find the neighbor chunk
 		var chunk_name: String = "Chunk_%d_%d_%d" % [neighbor_chunk_pos.x, neighbor_chunk_pos.y, neighbor_chunk_pos.z]
@@ -173,8 +182,8 @@ func _get_voxel(x: int, y: int, z: int) -> int:
 		
 		if neighbor != null:
 			# Direct array access to avoid recursion
-			if local_x >= 0 and local_x < CHUNK_SIZE and local_z >= 0 and local_z < CHUNK_SIZE:
-				var idx: int = local_x + (y * CHUNK_SIZE) + (local_z * CHUNK_SIZE * CHUNK_SIZE)
+			if local_x >= 0 and local_x < CHUNK_SIZE and local_y >= 0 and local_y < CHUNK_SIZE and local_z >= 0 and local_z < CHUNK_SIZE:
+				var idx: int = local_x + (local_y * CHUNK_SIZE) + (local_z * CHUNK_SIZE * CHUNK_SIZE)
 				return neighbor.voxels[idx]
 	
 	# Default to AIR if no neighbor
