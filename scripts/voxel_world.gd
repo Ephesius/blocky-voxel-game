@@ -51,4 +51,8 @@ func _spawn_initial_chunks() -> void:
 	# Second pass: Generate terrain data for all chunks
 	for chunk in chunks:
 		var voxel_data: Array[int] = generator.generate_chunk_data(chunk.chunk_pos)
-		chunk.set_voxel_data(voxel_data)
+		chunk.voxels = voxel_data
+	
+	# Third pass: Generate meshes now that all neighbor data exists
+	for chunk in chunks:
+		chunk._update_mesh()
