@@ -40,9 +40,9 @@ func _process(delta: float) -> void:
 		input_dir.x += 1
 	
 	# Vertical movement
-	if Input.is_key_pressed(KEY_E):
+	if Input.is_key_pressed(KEY_SPACE):
 		input_dir.y += 1
-	if Input.is_key_pressed(KEY_Q):
+	if Input.is_key_pressed(KEY_SHIFT):
 		input_dir.y -= 1
 	
 	# Normalize to prevent faster diagonal movement

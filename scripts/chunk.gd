@@ -15,30 +15,45 @@ enum BlockType {
 # For a 16x16x16 chunk, a flat array is fast and simple.
 # Size = 16^3 = 4096 integers.
 var voxels: Array[int] = []
+var chunk_pos: Vector2i  # Chunk position in chunk coordinates (not world)
+var world: Node3D  # Reference to voxel_world for neighbor lookups
 
 var mesh_instance: MeshInstance3D
-var noise: FastNoiseLite
+static var noise: FastNoiseLite  # Shared across all chunks
 
 func _ready() -> void:
 	mesh_instance = MeshInstance3D.new()
 	add_child(mesh_instance)
 	
+	# Initialize noise if not already done
+	if noise == null:
+		noise = FastNoiseLite.new()
+		noise.seed = 12345  # Fixed seed for consistent world
+		noise.frequency = 0.02
+	
 	# Initialize empty voxels
 	voxels.resize(CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE)
 	voxels.fill(BlockType.AIR)
-	
-	# Temporary: Generate some noise data
+
+func generate_chunk() -> void:
+	# Generate terrain data and mesh
 	_generate_data()
 	_update_mesh()
 
 func _generate_data() -> void:
-	noise = FastNoiseLite.new()
-	noise.seed = randi()
-	noise.frequency = 0.05
+	# Calculate world offset for this chunk
+	var world_x_offset = chunk_pos.x * CHUNK_SIZE
+	var world_z_offset = chunk_pos.y * CHUNK_SIZE
 	
 	for x in range(CHUNK_SIZE):
 		for z in range(CHUNK_SIZE):
-			var height = int((noise.get_noise_2d(x, z) + 1.0) * 0.5 * CHUNK_SIZE)
+			# Use world coordinates for noise sampling
+			var world_x = world_x_offset + x
+			var world_z = world_z_offset + z
+			
+			# Generate height based on noise (range 0-24)
+			var height = int((noise.get_noise_2d(world_x, world_z) + 1.0) * 0.5 * 24)
+			
 			for y in range(CHUNK_SIZE):
 				if y < height:
 					var index = _get_index(x, y, z)
@@ -65,10 +80,10 @@ func _update_mesh() -> void:
 	
 	var mesh = st.commit()
 	
-	# Create material with no backface culling for debugging
+	# Create material with backface culling enabled
 	var material = StandardMaterial3D.new()
 	material.vertex_color_use_as_albedo = true
-	material.cull_mode = BaseMaterial3D.CULL_DISABLED
+	material.cull_mode = BaseMaterial3D.CULL_BACK
 	mesh.surface_set_material(0, material)
 	
 	mesh_instance.mesh = mesh
@@ -151,9 +166,49 @@ func _get_index(x: int, y: int, z: int) -> int:
 	return x + (y * CHUNK_SIZE) + (z * CHUNK_SIZE * CHUNK_SIZE)
 
 func _get_voxel(x: int, y: int, z: int) -> int:
-	if x < 0 or x >= CHUNK_SIZE or y < 0 or y >= CHUNK_SIZE or z < 0 or z >= CHUNK_SIZE:
+	# Check if coordinates are within this chunk
+	if x >= 0 and x < CHUNK_SIZE and y >= 0 and y < CHUNK_SIZE and z >= 0 and z < CHUNK_SIZE:
+		return voxels[_get_index(x, y, z)]
+	
+	# Y out of bounds - always return AIR
+	if y < 0 or y >= CHUNK_SIZE:
 		return BlockType.AIR
-	return voxels[_get_index(x, y, z)]
+	
+	# Out of bounds in X or Z - check neighboring chunk if we have a world reference
+	if world != null:
+		var neighbor_chunk_pos = Vector2i(chunk_pos.x, chunk_pos.y)  # Explicit copy
+		var local_x = x
+		var local_z = z
+		
+		# Only handle single-axis neighbors (not diagonal)
+		# Adjust chunk position and local coordinates for X
+		if x < 0:
+			neighbor_chunk_pos.x -= 1
+			local_x = CHUNK_SIZE - 1  # Last column of neighbor
+		elif x >= CHUNK_SIZE:
+			neighbor_chunk_pos.x += 1
+			local_x = 0  # First column of neighbor
+		
+		# Adjust chunk position and local coordinates for Z
+		if z < 0:
+			neighbor_chunk_pos.y -= 1
+			local_z = CHUNK_SIZE - 1  # Last row of neighbor
+		elif z >= CHUNK_SIZE:
+			neighbor_chunk_pos.y += 1
+			local_z = 0  # First row of neighbor
+		
+		# Find the neighbor chunk
+		var chunk_name = "Chunk_%d_%d" % [neighbor_chunk_pos.x, neighbor_chunk_pos.y]
+		var neighbor = world.get_node_or_null(chunk_name)
+		
+		if neighbor != null:
+			# Direct array access to avoid recursion
+			if local_x >= 0 and local_x < CHUNK_SIZE and local_z >= 0 and local_z < CHUNK_SIZE:
+				var idx = local_x + (y * CHUNK_SIZE) + (local_z * CHUNK_SIZE * CHUNK_SIZE)
+				return neighbor.voxels[idx]
+	
+	# Default to AIR if no neighbor
+	return BlockType.AIR
 
 func _is_transparent(x: int, y: int, z: int) -> bool:
 	return _get_voxel(x, y, z) == BlockType.AIR
