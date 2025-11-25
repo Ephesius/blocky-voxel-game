@@ -56,18 +56,15 @@ func update_collision(enable: bool) -> void:
 
 
 
+
 func _update_mesh() -> void:
-	var surface_tool: SurfaceTool = SurfaceTool.new()
-	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
+	# Use C# mesher for dramatically faster performance
+	var mesher: ChunkMesher = ChunkMesher.new()
+	var mesh: ArrayMesh = mesher.CreateMesh(voxels, chunk_pos, world)
 	
-	# Naive meshing: one quad per visible face
-	# Much simpler and faster than greedy meshing for GDScript
-	_naive_mesh(surface_tool)
-	
-	# Index the mesh for better performance
-	surface_tool.index()
-	
-	var mesh: ArrayMesh = surface_tool.commit()
+	if mesh == null:
+		print("Failed to generate mesh for chunk ", chunk_pos)
+		return
 	
 	# Only set material and collision if the mesh has surfaces
 	if mesh.get_surface_count() > 0:
@@ -82,135 +79,6 @@ func _update_mesh() -> void:
 	else:
 		# Empty chunk - just set an empty mesh
 		mesh_instance.mesh = mesh
-
-func _naive_mesh(surface_tool: SurfaceTool) -> void:
-	# Simple naive meshing: iterate through all blocks
-	# For each solid block, check each face and add a quad if exposed
-	
-	# Face definitions: [offset, axis, direction, normal]
-	# We'll check 6 faces: +X, -X, +Y, -Y, +Z, -Z
-	var faces: Array = [
-		{"offset": Vector3i(1, 0, 0), "vertices": _get_face_vertices(0, 1)},   # +X
-		{"offset": Vector3i(-1, 0, 0), "vertices": _get_face_vertices(0, -1)}, # -X
-		{"offset": Vector3i(0, 1, 0), "vertices": _get_face_vertices(1, 1)},   # +Y
-		{"offset": Vector3i(0, -1, 0), "vertices": _get_face_vertices(1, -1)}, # -Y
-		{"offset": Vector3i(0, 0, 1), "vertices": _get_face_vertices(2, 1)},   # +Z
-		{"offset": Vector3i(0, 0, -1), "vertices": _get_face_vertices(2, -1)}  # -Z
-	]
-	
-	# Iterate through all voxels
-	for x in range(CHUNK_SIZE):
-		for y in range(CHUNK_SIZE):
-			for z in range(CHUNK_SIZE):
-				var block_type: int = voxels[_get_index(x, y, z)]
-				
-				# Skip air blocks
-				if block_type == BlockType.AIR:
-					continue
-				
-				# Set color based on block type
-				var color: Color = _get_block_color(block_type)
-				surface_tool.set_color(color)
-				
-				# Check each face
-				for face in faces:
-					var neighbor_pos: Vector3i = Vector3i(x, y, z) + face["offset"]
-					var neighbor: int = _get_voxel(neighbor_pos.x, neighbor_pos.y, neighbor_pos.z)
-					
-					# If neighbor is air, this face is exposed
-					if neighbor == BlockType.AIR:
-						_add_face(surface_tool, Vector3(x, y, z), face["vertices"])
-
-func _get_block_color(block_type: int) -> Color:
-	match block_type:
-		BlockType.GRASS: return Color.GREEN
-		BlockType.DIRT: return Color.SADDLE_BROWN
-		BlockType.STONE: return Color.GRAY
-		_: return Color.WHITE
-
-func _get_face_vertices(axis: int, direction: int) -> Array:
-	# Returns the 4 vertices for a face in local block coordinates (0-1 range)
-	# Axis: 0=X, 1=Y, 2=Z
-	# Direction: 1=positive, -1=negative
-	
-	var verts: Array = []
-	
-	if axis == 0:  # X faces (YZ plane)
-		var x_offset: float = 1.0 if direction > 0 else 0.0
-		if direction > 0:
-			# +X face (facing right)
-			verts = [
-				Vector3(x_offset, 0, 0),
-				Vector3(x_offset, 0, 1),
-				Vector3(x_offset, 1, 1),
-				Vector3(x_offset, 1, 0)
-			]
-		else:
-			# -X face (facing left)
-			verts = [
-				Vector3(x_offset, 0, 1),
-				Vector3(x_offset, 0, 0),
-				Vector3(x_offset, 1, 0),
-				Vector3(x_offset, 1, 1)
-			]
-	elif axis == 1:  # Y faces (XZ plane)
-		var y_offset: float = 1.0 if direction > 0 else 0.0
-		if direction > 0:
-			# +Y face (facing up)
-			verts = [
-				Vector3(0, y_offset, 0),
-				Vector3(1, y_offset, 0),
-				Vector3(1, y_offset, 1),
-				Vector3(0, y_offset, 1)
-			]
-		else:
-			# -Y face (facing down)
-			verts = [
-				Vector3(0, y_offset, 1),
-				Vector3(1, y_offset, 1),
-				Vector3(1, y_offset, 0),
-				Vector3(0, y_offset, 0)
-			]
-	else:  # Z faces (XY plane)
-		var z_offset: float = 1.0 if direction > 0 else 0.0
-		if direction > 0:
-			# +Z face (facing forward)
-			verts = [
-				Vector3(0, 0, z_offset),
-				Vector3(0, 1, z_offset),
-				Vector3(1, 1, z_offset),
-				Vector3(1, 0, z_offset)
-			]
-		else:
-			# -Z face (facing back)
-			verts = [
-				Vector3(1, 0, z_offset),
-				Vector3(1, 1, z_offset),
-				Vector3(0, 1, z_offset),
-				Vector3(0, 0, z_offset)
-			]
-	
-	return verts
-
-func _add_face(surface_tool: SurfaceTool, block_pos: Vector3, vertices: Array) -> void:
-	# Add a quad (2 triangles) for this face
-	# vertices[0-3] are in local block space (0-1)
-	# block_pos is the block position in chunk space
-	
-	var v1: Vector3 = block_pos + vertices[0]
-	var v2: Vector3 = block_pos + vertices[1]
-	var v3: Vector3 = block_pos + vertices[2]
-	var v4: Vector3 = block_pos + vertices[3]
-	
-	# First triangle
-	surface_tool.add_vertex(v1)
-	surface_tool.add_vertex(v2)
-	surface_tool.add_vertex(v3)
-	
-	# Second triangle
-	surface_tool.add_vertex(v1)
-	surface_tool.add_vertex(v3)
-	surface_tool.add_vertex(v4)
 
 
 func _create_wireframe(quads: Array) -> void:

@@ -1,0 +1,23 @@
+[gd_scene load_steps=6 format=3 uid="uid://br6yx7ry5dnl1"]
+
+[ext_resource type="Script" uid="uid://b6uxjy5a1uhr6" path="res://scripts/voxel_world.gd" id="1_0wfyh"]
+[ext_resource type="PackedScene" uid="uid://bllc7qrvcjj5t" path="res://scenes/player.tscn" id="2_0wfyh"]
+
+[sub_resource type="Environment" id="Environment_sgp6g"]
+
+[sub_resource type="CameraAttributesPractical" id="CameraAttributesPractical_o5qli"]
+
+[sub_resource type="Compositor" id="Compositor_0wfyh"]
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1_0wfyh")
+
+[node name="WorldEnvironment" type="WorldEnvironment" parent="."]
+environment = SubResource("Environment_sgp6g")
+camera_attributes = SubResource("CameraAttributesPractical_o5qli")
+compositor = SubResource("Compositor_0wfyh")
+
+[node name="DirectionalLight3D" type="DirectionalLight3D" parent="."]
+
+[node name="Player" parent="." instance=ExtResource("2_0wfyh")]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 70, 0)

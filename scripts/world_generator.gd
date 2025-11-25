@@ -1,5 +1,13 @@
 class_name WorldGenerator extends RefCounted
 
+# Block types - must match Chunk.cs enum values
+enum BlockType {
+	AIR = 0,
+	DIRT = 1,
+	GRASS = 2,
+	STONE = 3
+}
+
 var config: WorldConfig
 var noise: FastNoiseLite
 
@@ -16,7 +24,7 @@ func generate_chunk_data(chunk_pos: Vector3i) -> Array[int]:
 	var chunk_size: Vector3i = config.chunk_size
 	var voxels: Array[int] = []
 	voxels.resize(chunk_size.x * chunk_size.y * chunk_size.z)
-	voxels.fill(Chunk.BlockType.AIR)
+	voxels.fill(BlockType.AIR)
 	
 	# Calculate world offset for this chunk
 	var world_x_offset: int = chunk_pos.x * chunk_size.x
@@ -42,11 +50,11 @@ func generate_chunk_data(chunk_pos: Vector3i) -> Array[int]:
 					
 					# Determine block type based on depth
 					if world_y == height - 1:
-						voxels[index] = Chunk.BlockType.GRASS
+						voxels[index] = BlockType.GRASS
 					elif world_y > height - 4:
-						voxels[index] = Chunk.BlockType.DIRT
+						voxels[index] = BlockType.DIRT
 					else:
-						voxels[index] = Chunk.BlockType.STONE
+						voxels[index] = BlockType.STONE
 	
 	return voxels
 
