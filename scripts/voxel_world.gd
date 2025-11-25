@@ -21,6 +21,7 @@ func _spawn_initial_chunks() -> void:
 	
 	# Calculate vertical layers to generate (for now, just bottom few layers)
 	var max_y_layer: int = 4  # Generate layers 0-3 (64 blocks tall)
+	var collision_distance: int = 3  # Only create collision within this many chunks of origin
 	
 	# First pass: Create all chunks
 	var chunks: Array[Chunk] = []
@@ -56,3 +57,10 @@ func _spawn_initial_chunks() -> void:
 	# Third pass: Generate meshes now that all neighbor data exists
 	for chunk in chunks:
 		chunk._update_mesh()
+	
+	# Fourth pass: Add collision only to nearby chunks
+	for chunk in chunks:
+		var distance: float = chunk.global_position.length()
+		var chunk_distance: float = distance / chunk_size.x
+		if chunk_distance <= collision_distance:
+			chunk.update_collision(true)

@@ -38,6 +38,17 @@ func set_voxel_data(data: Array[int]) -> void:
 	voxels = data
 	_update_mesh()
 
+func update_collision(enable: bool) -> void:
+	# Add or remove collision based on distance to player
+	if enable and mesh_instance.mesh != null:
+		if not mesh_instance.get_child_count() > 0:  # Check if collision doesn't exist
+			mesh_instance.create_trimesh_collision()
+	elif not enable:
+		# Remove collision if it exists
+		for child in mesh_instance.get_children():
+			if child is StaticBody3D:
+				child.queue_free()
+
 
 
 func _update_mesh() -> void:
@@ -62,7 +73,7 @@ func _update_mesh() -> void:
 		mesh.surface_set_material(0, material)
 		
 		mesh_instance.mesh = mesh
-		mesh_instance.create_trimesh_collision()
+		# Note: Collision is now created separately via update_collision()
 		
 		# Generate wireframe if enabled
 		if show_wireframe:
