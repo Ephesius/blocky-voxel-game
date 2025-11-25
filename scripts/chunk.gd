@@ -60,11 +60,11 @@ func _update_mesh() -> void:
 	var surface_tool: SurfaceTool = SurfaceTool.new()
 	surface_tool.begin(Mesh.PRIMITIVE_TRIANGLES)
 	
-	# Use greedy meshing for each axis
-	var quads: Array = []  # Store quad data for wireframe
-	_greedy_mesh(surface_tool, quads)
+	# Naive meshing: one quad per visible face
+	# Much simpler and faster than greedy meshing for GDScript
+	_naive_mesh(surface_tool)
 	
-	# Don't generate normals - we want sharp edges, not smooth
+	# Index the mesh for better performance
 	surface_tool.index()
 	
 	var mesh: ArrayMesh = surface_tool.commit()
@@ -79,155 +79,139 @@ func _update_mesh() -> void:
 		
 		mesh_instance.mesh = mesh
 		# Note: Collision is now created separately via update_collision()
-		
-		# Generate wireframe if enabled
-		if show_wireframe:
-			_create_wireframe(quads)
 	else:
 		# Empty chunk - just set an empty mesh
 		mesh_instance.mesh = mesh
 
-func _greedy_mesh(surface_tool: SurfaceTool, quads: Array) -> void:
-	# Process each of the 6 face directions
-	# For each direction, we'll create a 2D slice and greedily merge faces
+func _naive_mesh(surface_tool: SurfaceTool) -> void:
+	# Simple naive meshing: iterate through all blocks
+	# For each solid block, check each face and add a quad if exposed
 	
-	# Axis directions: 0=X, 1=Y, 2=Z
-	# Face directions: -1=negative, +1=positive
-	for axis: int in range(3):
-		for direction: int in [-1, 1]:
-			_greedy_mesh_axis(surface_tool, axis, direction, quads)
-
-func _greedy_mesh_axis(surface_tool: SurfaceTool, axis: int, direction: int, quads: Array) -> void:
-	# Create a 2D mask for this slice
-	var mask: Array = []
-	mask.resize(CHUNK_SIZE * CHUNK_SIZE)
+	# Face definitions: [offset, axis, direction, normal]
+	# We'll check 6 faces: +X, -X, +Y, -Y, +Z, -Z
+	var faces: Array = [
+		{"offset": Vector3i(1, 0, 0), "vertices": _get_face_vertices(0, 1)},   # +X
+		{"offset": Vector3i(-1, 0, 0), "vertices": _get_face_vertices(0, -1)}, # -X
+		{"offset": Vector3i(0, 1, 0), "vertices": _get_face_vertices(1, 1)},   # +Y
+		{"offset": Vector3i(0, -1, 0), "vertices": _get_face_vertices(1, -1)}, # -Y
+		{"offset": Vector3i(0, 0, 1), "vertices": _get_face_vertices(2, 1)},   # +Z
+		{"offset": Vector3i(0, 0, -1), "vertices": _get_face_vertices(2, -1)}  # -Z
+	]
 	
-	# Determine the two axes perpendicular to the main axis
-	var u_axis: int = (axis + 1) % 3
-	var v_axis: int = (axis + 2) % 3
-	
-	# Iterate through each slice along the main axis
-	for d: int in range(CHUNK_SIZE):
-		# Clear the mask
-		for i: int in range(CHUNK_SIZE * CHUNK_SIZE):
-			mask[i] = null
-		
-		# Build the mask for this slice
-		for u: int in range(CHUNK_SIZE):
-			for v: int in range(CHUNK_SIZE):
-				# Get the position in 3D space
-				var pos: Vector3i = Vector3i.ZERO
-				pos[axis] = d
-				pos[u_axis] = u
-				pos[v_axis] = v
+	# Iterate through all voxels
+	for x in range(CHUNK_SIZE):
+		for y in range(CHUNK_SIZE):
+			for z in range(CHUNK_SIZE):
+				var block_type: int = voxels[_get_index(x, y, z)]
 				
-				# Check if we should render a face here
-				var current_block: int = _get_voxel(pos.x, pos.y, pos.z)
+				# Skip air blocks
+				if block_type == BlockType.AIR:
+					continue
 				
-				if current_block != BlockType.AIR:
-					# Check the neighbor in the direction we're facing
-					var neighbor_pos: Vector3i = pos
-					neighbor_pos[axis] += direction
-					var neighbor_block: int = _get_voxel(neighbor_pos.x, neighbor_pos.y, neighbor_pos.z)
+				# Set color based on block type
+				var color: Color = _get_block_color(block_type)
+				surface_tool.set_color(color)
+				
+				# Check each face
+				for face in faces:
+					var neighbor_pos: Vector3i = Vector3i(x, y, z) + face["offset"]
+					var neighbor: int = _get_voxel(neighbor_pos.x, neighbor_pos.y, neighbor_pos.z)
 					
-					# If neighbor is air or transparent, we need to render this face
-					if neighbor_block == BlockType.AIR:
-						mask[u + v * CHUNK_SIZE] = current_block
-		
-		# Generate mesh from mask using greedy algorithm
-		_generate_mesh_from_mask(surface_tool, mask, axis, direction, d, u_axis, v_axis, quads)
+					# If neighbor is air, this face is exposed
+					if neighbor == BlockType.AIR:
+						_add_face(surface_tool, Vector3(x, y, z), face["vertices"])
 
-func _generate_mesh_from_mask(surface_tool: SurfaceTool, mask: Array, axis: int, direction: int, d: int, u_axis: int, v_axis: int, quads: Array) -> void:
-	# Greedy meshing: expand rectangles as much as possible
-	for v: int in range(CHUNK_SIZE):
-		for u: int in range(CHUNK_SIZE):
-			var block_type = mask[u + v * CHUNK_SIZE]
-			
-			if block_type == null:
-				continue
-			
-			# Compute width (u direction)
-			var width: int = 1
-			while u + width < CHUNK_SIZE and mask[u + width + v * CHUNK_SIZE] == block_type:
-				width += 1
-			
-			# Compute height (v direction)
-			var height: int = 1
-			var done: bool = false
-			while v + height < CHUNK_SIZE and not done:
-				# Check if we can extend in the v direction
-				for k: int in range(width):
-					if mask[u + k + (v + height) * CHUNK_SIZE] != block_type:
-						done = true
-						break
-				if not done:
-					height += 1
-			
-			# Create the quad for this rectangle
-			_create_greedy_quad(surface_tool, block_type, axis, direction, d, u, v, width, height, u_axis, v_axis, quads)
-			
-			# Clear the mask for the area we just meshed
-			for j: int in range(height):
-				for i: int in range(width):
-					mask[u + i + (v + j) * CHUNK_SIZE] = null
-
-func _create_greedy_quad(surface_tool: SurfaceTool, block_type: int, axis: int, direction: int, d: int, u: int, v: int, width: int, height: int, u_axis: int, v_axis: int, quads: Array) -> void:
-	# Set color based on block type
-	var color: Color = Color.WHITE
+func _get_block_color(block_type: int) -> Color:
 	match block_type:
-		BlockType.GRASS: color = Color.GREEN
-		BlockType.DIRT: color = Color.SADDLE_BROWN
-		BlockType.STONE: color = Color.GRAY
+		BlockType.GRASS: return Color.GREEN
+		BlockType.DIRT: return Color.SADDLE_BROWN
+		BlockType.STONE: return Color.GRAY
+		_: return Color.WHITE
+
+func _get_face_vertices(axis: int, direction: int) -> Array:
+	# Returns the 4 vertices for a face in local block coordinates (0-1 range)
+	# Axis: 0=X, 1=Y, 2=Z
+	# Direction: 1=positive, -1=negative
 	
-	surface_tool.set_color(color)
+	var verts: Array = []
 	
-	# Create the four corners of the quad
-	var v1: Vector3 = Vector3.ZERO
-	var v2: Vector3 = Vector3.ZERO
-	var v3: Vector3 = Vector3.ZERO
-	var v4: Vector3 = Vector3.ZERO
+	if axis == 0:  # X faces (YZ plane)
+		var x_offset: float = 1.0 if direction > 0 else 0.0
+		if direction > 0:
+			# +X face (facing right)
+			verts = [
+				Vector3(x_offset, 0, 0),
+				Vector3(x_offset, 0, 1),
+				Vector3(x_offset, 1, 1),
+				Vector3(x_offset, 1, 0)
+			]
+		else:
+			# -X face (facing left)
+			verts = [
+				Vector3(x_offset, 0, 1),
+				Vector3(x_offset, 0, 0),
+				Vector3(x_offset, 1, 0),
+				Vector3(x_offset, 1, 1)
+			]
+	elif axis == 1:  # Y faces (XZ plane)
+		var y_offset: float = 1.0 if direction > 0 else 0.0
+		if direction > 0:
+			# +Y face (facing up)
+			verts = [
+				Vector3(0, y_offset, 0),
+				Vector3(1, y_offset, 0),
+				Vector3(1, y_offset, 1),
+				Vector3(0, y_offset, 1)
+			]
+		else:
+			# -Y face (facing down)
+			verts = [
+				Vector3(0, y_offset, 1),
+				Vector3(1, y_offset, 1),
+				Vector3(1, y_offset, 0),
+				Vector3(0, y_offset, 0)
+			]
+	else:  # Z faces (XY plane)
+		var z_offset: float = 1.0 if direction > 0 else 0.0
+		if direction > 0:
+			# +Z face (facing forward)
+			verts = [
+				Vector3(0, 0, z_offset),
+				Vector3(0, 1, z_offset),
+				Vector3(1, 1, z_offset),
+				Vector3(1, 0, z_offset)
+			]
+		else:
+			# -Z face (facing back)
+			verts = [
+				Vector3(1, 0, z_offset),
+				Vector3(1, 1, z_offset),
+				Vector3(0, 1, z_offset),
+				Vector3(0, 0, z_offset)
+			]
 	
-	# Position the quad based on axis and direction
-	# For positive direction, we want the far side (d+1)
-	# For negative direction, we want the near side (d)
-	var offset: float = float(d + 1) if direction > 0 else float(d)
+	return verts
+
+func _add_face(surface_tool: SurfaceTool, block_pos: Vector3, vertices: Array) -> void:
+	# Add a quad (2 triangles) for this face
+	# vertices[0-3] are in local block space (0-1)
+	# block_pos is the block position in chunk space
 	
-	v1[axis] = offset
-	v1[u_axis] = u
-	v1[v_axis] = v
+	var v1: Vector3 = block_pos + vertices[0]
+	var v2: Vector3 = block_pos + vertices[1]
+	var v3: Vector3 = block_pos + vertices[2]
+	var v4: Vector3 = block_pos + vertices[3]
 	
-	v2[axis] = offset
-	v2[u_axis] = u + width
-	v2[v_axis] = v
+	# First triangle
+	surface_tool.add_vertex(v1)
+	surface_tool.add_vertex(v2)
+	surface_tool.add_vertex(v3)
 	
-	v3[axis] = offset
-	v3[u_axis] = u + width
-	v3[v_axis] = v + height
-	
-	v4[axis] = offset
-	v4[u_axis] = u
-	v4[v_axis] = v + height
-	
-	# Add vertices in correct winding order based on direction
-	if direction > 0:
-		# Positive direction - counter-clockwise when viewed from outside
-		surface_tool.add_vertex(v1)
-		surface_tool.add_vertex(v4)
-		surface_tool.add_vertex(v3)
-		surface_tool.add_vertex(v1)
-		surface_tool.add_vertex(v3)
-		surface_tool.add_vertex(v2)
-	else:
-		# Negative direction - counter-clockwise when viewed from outside
-		surface_tool.add_vertex(v1)
-		surface_tool.add_vertex(v2)
-		surface_tool.add_vertex(v3)
-		surface_tool.add_vertex(v1)
-		surface_tool.add_vertex(v3)
-		surface_tool.add_vertex(v4)
-	
-	# Store quad vertices for wireframe
-	quads.append([v1, v2, v3, v4])
+	# Second triangle
+	surface_tool.add_vertex(v1)
+	surface_tool.add_vertex(v3)
+	surface_tool.add_vertex(v4)
+
 
 func _create_wireframe(quads: Array) -> void:
 	# Create a line mesh for the wireframe
