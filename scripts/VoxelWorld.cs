@@ -94,18 +94,29 @@ public partial class VoxelWorld : Node3D
 			}
 		}
 		
+				
 		afterCreation = stopwatch.ElapsedMilliseconds;
 		GD.Print($"Created {_allChunks.Count} chunk nodes in {afterCreation} ms");
 		
-		// Second pass: Generate terrain data and meshes for all chunks
+		// Second pass: Generate and set terrain data (no meshes yet)
 		foreach (var chunk in _allChunks)
 		{
 			var voxelData = _generator.GenerateChunkData(chunk.ChunkPos);
-			chunk.SetVoxelData(voxelData);
+			chunk.Voxels = voxelData; // Set data without triggering mesh generation
 		}
 		
 		var afterData = stopwatch.ElapsedMilliseconds;
-		GD.Print($"Generated terrain data and meshes for {_allChunks.Count} chunks in {afterData - afterCreation} ms");
+		GD.Print($"Generated terrain data for {_allChunks.Count} chunks in {afterData - afterCreation} ms");
+		
+		// Third pass: Generate meshes now that all neighbor data exists
+		foreach (var chunk in _allChunks)
+		{
+			chunk.UpdateMesh();
+		}
+		
+		var afterMesh = stopwatch.ElapsedMilliseconds;
+		GD.Print($"Generated meshes for {_allChunks.Count} chunks in {afterMesh - afterData} ms");
+
 		
 		// Enable collision for nearby chunks
 		GD.Print($"Enabling collision for chunks within {_collisionDistance} distance of player...");

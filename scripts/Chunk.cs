@@ -19,7 +19,7 @@ public partial class Chunk : Node3D
 	// Public properties
 	public Vector3I ChunkPos { get; set; }
 	public Node3D World { get; set; }
-	public int[] Voxels { get; private set; }
+	public int[] Voxels { get; set; } // Public setter to allow direct data setting
 	
 	// Private fields
 	private MeshInstance3D _meshInstance;
