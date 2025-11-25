@@ -4,7 +4,7 @@ var config: WorldConfig
 var generator: WorldGenerator
 var all_chunks: Array = []  # Store all chunks for collision updates (can't type as Array[Chunk] with C#)
 var player: Node3D  # Reference to player
-var collision_distance: float = 6.0  # Chunks within this distance get collision
+var collision_distance: float = 2.0  # Chunks within this distance get collision
 
 func _ready() -> void:
 	# Create default config
