@@ -1,0 +1,319 @@
+using Godot;
+using System;
+using System.Collections.Concurrent;
+using System.Collections.Generic;
+using System.Threading;
+
+/// <summary>
+/// The Brain of the Voxel Engine.
+/// Manages the background worker thread, generation queues, and main-thread upload budget.
+/// </summary>
+public partial class ChunkManager : Node
+{
+    // Configuration
+    private int _viewDistance = 8;
+    private const int MAX_MS_PER_FRAME = 5; // Budget for main thread uploads
+
+    // State
+    private WorldData _worldData;
+    private WorldGenerator _generator;
+    private Vector3I _lastPlayerChunkPos = new Vector3I(int.MaxValue, int.MaxValue, int.MaxValue);
+    private bool _isRunning = true;
+
+    // Threading
+    private Thread _workerThread;
+    // Queues
+    private ConcurrentQueue<Vector3I> _generationQueue = new ConcurrentQueue<Vector3I>();
+    private ConcurrentQueue<Vector3I> _meshQueue = new ConcurrentQueue<Vector3I>();
+    private ConcurrentQueue<(Vector3I, GreedyMesher.MeshData)> _uploadQueue = new ConcurrentQueue<(Vector3I, GreedyMesher.MeshData)>();
+    
+    // We use a HashSet to quickly check if a chunk is already queued to avoid duplicates
+    private HashSet<Vector3I> _queuedChunks = new HashSet<Vector3I>();
+    private object _queueLock = new object();
+    
+    // Instances
+    private Dictionary<Vector3I, Rid> _chunkInstances = new Dictionary<Vector3I, Rid>();
+
+    public override void _Ready()
+    {
+        _worldData = new WorldData();
+        _generator = new WorldGenerator(new WorldConfig()); 
+
+        // Start the background worker
+        _workerThread = new Thread(WorkerLoop);
+        _workerThread.IsBackground = true;
+        _workerThread.Start();
+        
+        GD.Print("ChunkManager: Worker thread started.");
+    }
+
+    public override void _Process(double delta)
+    {
+        UpdatePlayerPosition();
+        ProcessUploadQueue();
+    }
+
+    public override void _ExitTree()
+    {
+        _isRunning = false;
+        if (_workerThread != null && _workerThread.IsAlive)
+        {
+            _workerThread.Join(100); // Wait briefly for thread to stop
+        }
+        
+        // Cleanup all chunks
+        foreach(var chunk in _worldData.Chunks.Values)
+        {
+            chunk.Dispose();
+        }
+    }
+
+    private void UpdatePlayerPosition()
+    {
+        // For now, assume player is at (0,0,0) or find player node
+        // In a real game, we'd get the player's actual position
+        var player = GetTree().Root.GetNodeOrNull<Node3D>("Main/Player");
+        Vector3 playerPos = player != null ? player.GlobalPosition : Vector3.Zero;
+
+        Vector3I currentChunkPos = new Vector3I(
+            Mathf.FloorToInt(playerPos.X / 16f),
+            Mathf.FloorToInt(playerPos.Y / 16f),
+            Mathf.FloorToInt(playerPos.Z / 16f)
+        );
+
+        if (currentChunkPos != _lastPlayerChunkPos)
+        {
+            _lastPlayerChunkPos = currentChunkPos;
+            QueueChunksAround(currentChunkPos);
+        }
+    }
+
+    private void QueueChunksAround(Vector3I center)
+    {
+        int dist = _viewDistance;
+        int queuedCount = 0;
+
+        // Simple loop for now. 
+        // Optimization: Spiral out from center so closest chunks load first.
+        for (int x = -dist; x <= dist; x++)
+        {
+            for (int z = -dist; z <= dist; z++)
+            {
+                // Generate chunks vertically around the player as well
+                for (int y = -dist; y <= dist; y++) 
+                {
+                    Vector3I chunkPos = center + new Vector3I(x, y, z);
+                    
+                    // Check if already exists
+                    if (_worldData.Chunks.ContainsKey(chunkPos))
+                        continue;
+
+                    // Thread-safe check if already queued
+                    lock (_queueLock)
+                    {
+                        if (_queuedChunks.Contains(chunkPos))
+                            continue;
+                        
+                        _queuedChunks.Add(chunkPos);
+                        _generationQueue.Enqueue(chunkPos);
+                        queuedCount++;
+                    }
+                }
+            }
+        }
+        
+        if (queuedCount > 0)
+            GD.Print($"ChunkManager: Queued {queuedCount} new chunks for generation.");
+    }
+
+    private void WorkerLoop()
+    {
+        while (_isRunning)
+        {
+            bool didWork = false;
+
+            // 1. Process Generation Queue
+            if (_generationQueue.TryDequeue(out Vector3I chunkPos))
+            {
+                GenerateChunk(chunkPos);
+                
+                // After generation, queue for meshing
+                _meshQueue.Enqueue(chunkPos);
+                
+                // Also queue neighbors for re-meshing if needed (to fix seams)
+                // For now, we just mesh the new chunk
+                
+                didWork = true;
+            }
+
+            // 2. Process Meshing Queue (Phase 3)
+            if (_meshQueue.TryDequeue(out Vector3I meshPos))
+            {
+                // Remove from queue tracker only after we pick it up for meshing
+                // (Actually, we should remove it when it enters generation, but let's keep it simple)
+                lock (_queueLock)
+                {
+                    _queuedChunks.Remove(meshPos);
+                }
+                
+                MeshChunk(meshPos);
+                didWork = true;
+            }
+
+            // If no work, sleep briefly to save CPU
+            if (!didWork)
+            {
+                Thread.Sleep(5);
+            }
+        }
+    }
+
+    private void GenerateChunk(Vector3I pos)
+    {
+        // This runs on the background thread!
+        // 1. Create Data
+        var data = _generator.GenerateChunkData(pos); // Returns int[] currently, need to adapt
+        
+        // Adapt old generator to new ChunkData (Temporary adapter until we rewrite generator)
+        var chunkData = new ChunkData();
+        // For now, just fill with the data from the old generator
+        // In Phase 3 or 4 we will rewrite WorldGenerator to write directly to ChunkData
+        for (int x = 0; x < 16; x++)
+        {
+            for (int y = 0; y < 16; y++)
+            {
+                for (int z = 0; z < 16; z++)
+                {
+                    int index = x + (y * 16) + (z * 256);
+                    chunkData.SetVoxel(x, y, z, data[index]);
+                }
+            }
+        }
+
+        // 2. Store in WorldData
+        // Dictionary is not thread-safe for writing, so we lock it
+        lock (_worldData.Chunks)
+        {
+            _worldData.AddChunk(pos, chunkData);
+        }
+        
+        // GD.Print($"Generated Chunk {pos} on Thread {Thread.CurrentThread.ManagedThreadId}");
+    }
+    
+    private void MeshChunk(Vector3I pos)
+    {
+        ChunkData chunk;
+        if (!_worldData.TryGetChunk(pos, out chunk))
+            return;
+            
+        // Get Neighbors
+        ChunkData[] neighbors = new ChunkData[6];
+        // 0: X-, 1: X+, 2: Y-, 3: Y+, 4: Z-, 5: Z+
+        Vector3I[] offsets = { 
+            new(-1,0,0), new(1,0,0), 
+            new(0,-1,0), new(0,1,0), 
+            new(0,0,-1), new(0,0,1) 
+        };
+        
+        for(int i=0; i<6; i++)
+        {
+            _worldData.TryGetChunk(pos + offsets[i], out neighbors[i]);
+        }
+        
+        // Generate Mesh Data
+        var meshData = GreedyMesher.GenerateMesh(chunk, neighbors);
+        
+        if (meshData.Vertices.Length > 0)
+        {
+            _uploadQueue.Enqueue((pos, meshData));
+        }
+    }
+    
+    private void ProcessUploadQueue()
+    {
+        long startTime = System.Environment.TickCount;
+        
+        while (_uploadQueue.TryDequeue(out var item))
+        {
+            Vector3I pos = item.Item1;
+            GreedyMesher.MeshData data = item.Item2;
+            
+            if (_worldData.TryGetChunk(pos, out ChunkData chunk))
+            {
+                UploadMesh(chunk, pos, data);
+            }
+            
+            if (System.Environment.TickCount - startTime > MAX_MS_PER_FRAME)
+                break;
+        }
+    }
+    
+    private void UploadMesh(ChunkData chunk, Vector3I pos, GreedyMesher.MeshData data)
+    {
+        // 1. Create/Update Mesh RID
+        if (!chunk.MeshRid.IsValid)
+        {
+            chunk.MeshRid = RenderingServer.MeshCreate();
+        }
+        else
+        {
+            RenderingServer.MeshClear(chunk.MeshRid);
+        }
+        
+        // Set Surface
+        var arrays = new Godot.Collections.Array();
+        arrays.Resize((int)Mesh.ArrayType.Max);
+        arrays[(int)Mesh.ArrayType.Vertex] = data.Vertices;
+        arrays[(int)Mesh.ArrayType.Normal] = data.Normals;
+        arrays[(int)Mesh.ArrayType.Color] = data.Colors;
+        arrays[(int)Mesh.ArrayType.Index] = data.Indices;
+        
+        RenderingServer.MeshAddSurfaceFromArrays(chunk.MeshRid, RenderingServer.PrimitiveType.Triangles, arrays);
+        
+        // 2. Create Instance if needed
+        if (!_chunkInstances.ContainsKey(pos))
+        {
+            Rid instanceRid = RenderingServer.InstanceCreate();
+            RenderingServer.InstanceSetBase(instanceRid, chunk.MeshRid);
+            RenderingServer.InstanceSetScenario(instanceRid, GetViewport().World3D.Scenario);
+            
+            // Set Transform
+            Transform3D transform = new Transform3D(Basis.Identity, new Vector3(pos.X * 16, pos.Y * 16, pos.Z * 16));
+            RenderingServer.InstanceSetTransform(instanceRid, transform);
+            
+            _chunkInstances[pos] = instanceRid;
+        }
+        
+        // 3. Collision
+        // We create a Trimesh collision shape
+        if (!chunk.BodyRid.IsValid)
+        {
+            chunk.BodyRid = PhysicsServer3D.BodyCreate();
+            PhysicsServer3D.BodySetMode(chunk.BodyRid, PhysicsServer3D.BodyMode.Static);
+            PhysicsServer3D.BodySetSpace(chunk.BodyRid, GetViewport().World3D.Space);
+            
+            // Create Shape
+            Rid shapeRid = PhysicsServer3D.ConcavePolygonShapeCreate();
+            
+            // Unroll indices to create triangle soup (ConcavePolygonShape needs raw triangles)
+            var collisionVertices = new Vector3[data.Indices.Length];
+            for (int i = 0; i < data.Indices.Length; i++)
+            {
+                collisionVertices[i] = data.Vertices[data.Indices[i]];
+            }
+            
+            // Godot 4 PhysicsServer3D.ShapeSetData for ConcavePolygon expects a Dictionary with "faces"
+            var shapeData = new Godot.Collections.Dictionary();
+            shapeData["faces"] = collisionVertices;
+            
+            PhysicsServer3D.ShapeSetData(shapeRid, shapeData); 
+            
+            // Add shape to body
+            PhysicsServer3D.BodyAddShape(chunk.BodyRid, shapeRid);
+            
+            // Set Transform
+            Transform3D transform = new Transform3D(Basis.Identity, new Vector3(pos.X * 16, pos.Y * 16, pos.Z * 16));
+            PhysicsServer3D.BodySetState(chunk.BodyRid, PhysicsServer3D.BodyState.Transform, transform);
+        }
+    }
+}

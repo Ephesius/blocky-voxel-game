@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://b8qj7x5y403w"]
+
+[ext_resource type="Script" path="res://scripts/CS/DataLayerTest.cs" id="1_test"]
+
+[node name="DataLayerTest" type="Node"]
+script = ExtResource("1_test")
