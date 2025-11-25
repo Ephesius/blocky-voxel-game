@@ -20,6 +20,7 @@ var world: Node3D  # Reference to voxel_world for neighbor lookups
 var mesh_instance: MeshInstance3D
 var wireframe_instance: MeshInstance3D
 var show_wireframe: bool = true  # Toggle for debugging
+var has_collision: bool = false  # Track collision state
 
 func _ready() -> void:
 	mesh_instance = MeshInstance3D.new()
@@ -39,15 +40,19 @@ func set_voxel_data(data: Array[int]) -> void:
 	_update_mesh()
 
 func update_collision(enable: bool) -> void:
-	# Add or remove collision based on distance to player
-	if enable and mesh_instance.mesh != null:
-		if not mesh_instance.get_child_count() > 0:  # Check if collision doesn't exist
-			mesh_instance.create_trimesh_collision()
-	elif not enable:
+	# Only update if state is changing
+	if enable == has_collision:
+		return
+	
+	if enable and mesh_instance.mesh != null and mesh_instance.mesh.get_surface_count() > 0:
+		mesh_instance.create_trimesh_collision()
+		has_collision = true
+	elif not enable and has_collision:
 		# Remove collision if it exists
 		for child in mesh_instance.get_children():
 			if child is StaticBody3D:
 				child.queue_free()
+		has_collision = false
 
 
 
