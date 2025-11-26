@@ -137,11 +137,27 @@ public partial class ChunkManager : Node
             {
                 GenerateChunk(chunkPos);
                 
-                // After generation, queue for meshing
+                // After generation, queue THIS chunk for meshing
                 _meshQueue.Enqueue(chunkPos);
                 
-                // Also queue neighbors for re-meshing if needed (to fix seams)
-                // For now, we just mesh the new chunk
+                // CRITICAL FIX: Queue neighbors for re-meshing!
+                // If we don't do this, the neighbor might have generated when *we* didn't exist yet,
+                // so it drew a face on the border. Now that we exist, it needs to hide that face.
+                Vector3I[] neighborOffsets = { 
+                    new(-1,0,0), new(1,0,0), 
+                    new(0,-1,0), new(0,1,0), 
+                    new(0,0,-1), new(0,0,1) 
+                };
+
+                foreach (var offset in neighborOffsets)
+                {
+                    Vector3I neighborPos = chunkPos + offset;
+                    // If neighbor exists, it needs to update its mesh to "see" us
+                    if (_worldData.Chunks.ContainsKey(neighborPos))
+                    {
+                        _meshQueue.Enqueue(neighborPos);
+                    }
+                }
                 
                 didWork = true;
             }
