@@ -7,8 +7,6 @@ using System.Diagnostics;
 public partial class VoxelWorld : Node3D
 {
 	private WorldConfig _config;
-	private WorldGenerator _generator;
-	private List<Chunk> _allChunks = new List<Chunk>();
 	private Node3D _player;
 	private float _collisionDistance = 2.0f;
 	
@@ -16,9 +14,6 @@ public partial class VoxelWorld : Node3D
 	{
 		// Create default config
 		_config = new WorldConfig();
-		
-		// Create generator (still needed for now)
-		_generator = new WorldGenerator(_config);
 		
 		// Initialize ChunkManager
 		var chunkManager = new ChunkManager();
@@ -50,18 +45,8 @@ public partial class VoxelWorld : Node3D
 			(int)Mathf.Floor(_player.GlobalPosition.Z / chunkSize.Z)
 		);
 		
-		// Update collision for all chunks based on distance to player
-		foreach (var chunk in _allChunks)
-		{
-			float distance = new Vector3(
-				chunk.ChunkPos.X - playerChunkPos.X,
-				chunk.ChunkPos.Y - playerChunkPos.Y,
-				chunk.ChunkPos.Z - playerChunkPos.Z
-			).Length();
-			
-			bool shouldHaveCollision = distance <= _collisionDistance;
-			chunk.UpdateCollision(shouldHaveCollision);
-		}
+		// TODO: Update collision for chunks based on distance to player
+		// This functionality will be handled by ChunkManager in the future
 	}
 	
 	public override void _Process(double delta)

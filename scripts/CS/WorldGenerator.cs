@@ -22,7 +22,7 @@ public partial class WorldGenerator : RefCounted
 	{
 		var chunkSize = _config.ChunkSize;
 		var voxels = new int[chunkSize.X * chunkSize.Y * chunkSize.Z];
-		Array.Fill(voxels, (int)Chunk.BlockType.AIR);
+		Array.Fill(voxels, (int)ChunkData.BlockType.AIR);
 		
 		// Calculate world offset for this chunk
 		int worldXOffset = chunkPos.X * chunkSize.X;
@@ -52,11 +52,11 @@ public partial class WorldGenerator : RefCounted
 						
 						// Determine block type based on depth
 						if (worldY == height - 1)
-							voxels[index] = (int)Chunk.BlockType.GRASS;
+							voxels[index] = (int)ChunkData.BlockType.GRASS;
 						else if (worldY > height - 4)
-							voxels[index] = (int)Chunk.BlockType.DIRT;
+							voxels[index] = (int)ChunkData.BlockType.DIRT;
 						else
-							voxels[index] = (int)Chunk.BlockType.STONE;
+							voxels[index] = (int)ChunkData.BlockType.STONE;
 					}
 				}
 			}

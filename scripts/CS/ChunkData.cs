@@ -11,6 +11,15 @@ public class ChunkData
     public const int CHUNK_SIZE = 16;
     public const int CHUNK_VOLUME = CHUNK_SIZE * CHUNK_SIZE * CHUNK_SIZE;
 
+    // Block types - must match GDScript enum for now
+    public enum BlockType
+    {
+        AIR = 0,
+        DIRT = 1,
+        GRASS = 2,
+        STONE = 3
+    }
+
     // The Palette stores the unique block types used in this chunk.
     // Index 0 is always AIR (0).
     public List<int> Palette { get; private set; }
