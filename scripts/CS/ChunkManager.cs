@@ -91,18 +91,17 @@ public partial class ChunkManager : Node
     private void QueueChunksAround(Vector3I center)
     {
         int dist = _viewDistance;
-        int queuedCount = 0;
+        var chunksToQueue = new List<Vector3I>();
 
-        // Simple loop for now. 
-        // Optimization: Spiral out from center so closest chunks load first.
+        // 1. Collect all potential chunks
         for (int x = -dist; x <= dist; x++)
         {
             for (int z = -dist; z <= dist; z++)
             {
-                // Generate chunks vertically around the player as well
                 for (int y = -dist; y <= dist; y++) 
                 {
-                    Vector3I chunkPos = center + new Vector3I(x, y, z);
+                    Vector3I offset = new Vector3I(x, y, z);
+                    Vector3I chunkPos = center + offset;
                     
                     // Check if already exists
                     if (_worldData.Chunks.ContainsKey(chunkPos))
@@ -113,12 +112,35 @@ public partial class ChunkManager : Node
                     {
                         if (_queuedChunks.Contains(chunkPos))
                             continue;
-                        
-                        _queuedChunks.Add(chunkPos);
-                        _generationQueue.Enqueue(chunkPos);
-                        queuedCount++;
                     }
+                    
+                    chunksToQueue.Add(chunkPos);
                 }
+            }
+        }
+        
+        // 2. Sort by distance to center (closest first)
+        // We use squared distance to avoid Sqrt
+        chunksToQueue.Sort((a, b) => 
+        {
+            float distA = (a - center).LengthSquared();
+            float distB = (b - center).LengthSquared();
+            return distA.CompareTo(distB);
+        });
+        
+        // 3. Enqueue sorted chunks
+        int queuedCount = 0;
+        foreach (var chunkPos in chunksToQueue)
+        {
+            lock (_queueLock)
+            {
+                // Double check (though unlikely to change in this single thread context)
+                if (_queuedChunks.Contains(chunkPos))
+                    continue;
+                    
+                _queuedChunks.Add(chunkPos);
+                _generationQueue.Enqueue(chunkPos);
+                queuedCount++;
             }
         }
         
@@ -239,10 +261,10 @@ public partial class ChunkManager : Node
         // Generate Mesh Data
         var meshData = GreedyMesher.GenerateMesh(chunk, neighbors);
         
-        if (meshData.Vertices.Length > 0)
-        {
-            _uploadQueue.Enqueue((pos, meshData));
-        }
+        // ALWAYS enqueue, even if empty!
+        // If the mesh is empty (e.g. fully underground), we still need to upload it
+        // to CLEAR the old mesh that might have had border faces.
+        _uploadQueue.Enqueue((pos, meshData));
     }
     
     private void ProcessUploadQueue()
@@ -277,14 +299,17 @@ public partial class ChunkManager : Node
         }
         
         // Set Surface
-        var arrays = new Godot.Collections.Array();
-        arrays.Resize((int)Mesh.ArrayType.Max);
-        arrays[(int)Mesh.ArrayType.Vertex] = data.Vertices;
-        arrays[(int)Mesh.ArrayType.Normal] = data.Normals;
-        arrays[(int)Mesh.ArrayType.Color] = data.Colors;
-        arrays[(int)Mesh.ArrayType.Index] = data.Indices;
-        
-        RenderingServer.MeshAddSurfaceFromArrays(chunk.MeshRid, RenderingServer.PrimitiveType.Triangles, arrays);
+        if (data.Vertices.Length > 0)
+        {
+            var arrays = new Godot.Collections.Array();
+            arrays.Resize((int)Mesh.ArrayType.Max);
+            arrays[(int)Mesh.ArrayType.Vertex] = data.Vertices;
+            arrays[(int)Mesh.ArrayType.Normal] = data.Normals;
+            arrays[(int)Mesh.ArrayType.Color] = data.Colors;
+            arrays[(int)Mesh.ArrayType.Index] = data.Indices;
+            
+            RenderingServer.MeshAddSurfaceFromArrays(chunk.MeshRid, RenderingServer.PrimitiveType.Triangles, arrays);
+        }
         
         // 2. Create Instance if needed
         if (!_chunkInstances.ContainsKey(pos))

@@ -1,5 +1,4 @@
-using System;
-using System.Collections.Generic;
+using System.Collections.Concurrent;
 using Godot;
 
 /// <summary>
@@ -11,7 +10,7 @@ public class WorldData
     // The Infinite World Storage
     // Key: Chunk Coordinate (Vector3I)
     // Value: Chunk Data (Pure C#)
-    public Dictionary<Vector3I, ChunkData> Chunks { get; private set; } = new Dictionary<Vector3I, ChunkData>();
+    public ConcurrentDictionary<Vector3I, ChunkData> Chunks { get; private set; } = new ConcurrentDictionary<Vector3I, ChunkData>();
 
     public bool TryGetChunk(Vector3I pos, out ChunkData chunk)
     {
@@ -20,19 +19,12 @@ public class WorldData
 
     public void AddChunk(Vector3I pos, ChunkData chunk)
     {
-        if (Chunks.ContainsKey(pos))
-        {
-            Chunks[pos] = chunk; // Overwrite
-        }
-        else
-        {
-            Chunks.Add(pos, chunk);
-        }
+        Chunks.AddOrUpdate(pos, chunk, (key, oldValue) => chunk);
     }
 
     public void RemoveChunk(Vector3I pos)
     {
-        Chunks.Remove(pos);
+        Chunks.TryRemove(pos, out _);
     }
     
     public void Clear()
