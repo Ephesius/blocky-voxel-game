@@ -16,6 +16,7 @@ public static class GreedyMesher
         public Vector2[] UVs;
         public Color[] Colors;
         public int[] Indices;
+        public int[] TextureIndices;  // Texture layer index per vertex
     }
 
     // Direction vectors for the 6 faces
@@ -36,6 +37,7 @@ public static class GreedyMesher
         var uvs = new List<Vector2>();
         var colors = new List<Color>();
         var indices = new List<int>();
+        var textureIndices = new List<int>();  // NEW: Texture layer index per vertex
 
         // We sweep over each axis (X, Y, Z)
         for (int d = 0; d < 3; d++)
@@ -138,12 +140,16 @@ public static class GreedyMesher
                             Vector3 v3 = new Vector3(x[0] + du[0] + dv[0], x[1] + du[1] + dv[1], x[2] + du[2] + dv[2]);
                             Vector3 v4 = new Vector3(x[0] + dv[0], x[1] + dv[1], x[2] + dv[2]);
 
+                            // Capture face direction before type is sanitized
+                            bool isPositive = type > 0;
+
                             // Determine normal and winding order
                             Vector3 normal;
-                            if (type > 0) // Front face
+                            if (isPositive) // Front face
                             {
                                 normal = new Vector3(q[0], q[1], q[2]);
-                                AddQuad(vertices, indices, v1, v4, v3, v2); // Clockwise?
+                                // Revert to original winding (Clockwise?) to ensure correct normal direction
+                                AddQuad(vertices, indices, v1, v4, v3, v2);
                             }
                             else // Back face
                             {
@@ -152,13 +158,18 @@ public static class GreedyMesher
                                 AddQuad(vertices, indices, v1, v2, v3, v4);
                             }
 
+
                             // Add attributes
                             for (int c = 0; c < 4; c++)
                             {
                                 normals.Add(normal);
-                                colors.Add(GetColor(type));
-                                uvs.Add(Vector2.Zero); // Placeholder
+                                colors.Add(GetColor(type));  // Keep for fallback
                             }
+                            
+                            // Calculate UVs for greedy quad: tile texture across width × height
+                            // Pass 'd' (axis) and 'isPositive' to handle orientation correctly
+                            AddQuadUVsAndTextures(uvs, textureIndices, width, height, type, d, isPositive);
+
 
                             // Clear mask
                             for (l = 0; l < height; ++l)
@@ -187,8 +198,9 @@ public static class GreedyMesher
             Vertices = vertices.ToArray(),
             Normals = normals.ToArray(),
             UVs = uvs.ToArray(),
-            Colors = colors.ToArray(),
-            Indices = indices.ToArray()
+            Colors = colors.ToArray(),  // Keep for fallback
+            Indices = indices.ToArray(),
+            TextureIndices = textureIndices.ToArray()  // NEW
         };
     }
 
@@ -218,6 +230,70 @@ public static class GreedyMesher
             _ => Colors.Magenta // Error
         };
     }
+    
+    /// <summary>
+    /// Adds UV coordinates and texture indices for a greedy-meshed quad.
+    /// UVs tile the texture across the quad's width and height.
+    /// </summary>
+    private static void AddQuadUVsAndTextures(List<Vector2> uvs, List<int> textureIndices, int width, int height, int blockType, int axis, bool isPositiveFace)
+    {
+        // Determine texture layer from block type
+        // Note: blockType can be negative for back faces, so use Abs
+        int textureLayer = GetTextureLayerForBlockType(Math.Abs(blockType));
+        
+        float uSize = width;
+        float vSize = height;
+        
+
+        
+        // Add UVs for the 4 corners of the quad
+        // We must match the vertex winding order used in GenerateMesh!
+        
+        if (isPositiveFace) // Positive Face (Swapped Winding: v1, v4, v3, v2)
+        {
+            // v1 -> (0,0)
+            // v4 -> (0, vSize)
+            // v3 -> (uSize, vSize)
+            // v2 -> (uSize, 0)
+            uvs.Add(new Vector2(0, 0));
+            uvs.Add(new Vector2(0, vSize));
+            uvs.Add(new Vector2(uSize, vSize));
+            uvs.Add(new Vector2(uSize, 0));
+        }
+        else // Negative Face (Standard Winding: v1, v2, v3, v4)
+        {
+            // v1 -> (0,0)
+            // v2 -> (uSize, 0)
+            // v3 -> (uSize, vSize)
+            // v4 -> (0, vSize)
+            uvs.Add(new Vector2(0, 0));
+            uvs.Add(new Vector2(uSize, 0));
+            uvs.Add(new Vector2(uSize, vSize));
+            uvs.Add(new Vector2(0, vSize));
+        }
+        
+        // Add texture layer index for all 4 vertices
+        for (int i = 0; i < 4; i++)
+        {
+            textureIndices.Add(textureLayer);
+        }
+    }
+    
+    /// <summary>
+    /// Maps block type to texture layer index.
+    /// Must match the TextureManager's layer mapping.
+    /// </summary>
+    private static int GetTextureLayerForBlockType(int blockType)
+    {
+        return blockType switch
+        {
+            1 => 0, // DIRT -> Layer 0
+            2 => 1, // GRASS -> Layer 1
+            3 => 2, // STONE -> Layer 2
+            _ => 0  // Default to dirt for unknown types
+        };
+    }
+
     
     // Helper to get voxel from neighbor chunks if coordinate is out of bounds
     private static int GetNeighborVoxel(int x, int y, int z, ChunkData[] neighbors, int axis, bool isNext)

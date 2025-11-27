@@ -33,11 +33,32 @@ public partial class ChunkManager : Node
     
     // Instances
     private Dictionary<Vector3I, Rid> _chunkInstances = new Dictionary<Vector3I, Rid>();
+    
+    // Rendering
+    private TextureManager _textureManager;
+    private ShaderMaterial _voxelMaterial;
 
     public override void _Ready()
     {
         _worldData = new WorldData();
         _generator = new WorldGenerator(new WorldConfig()); 
+
+        // Initialize Texture System
+        _textureManager = new TextureManager();
+        _textureManager.LoadTextures("res://assets/textures/blocks");
+        
+        // Initialize Shader Material
+        var shader = GD.Load<Shader>("res://shaders/voxel_texture.gdshader");
+        _voxelMaterial = new ShaderMaterial();
+        _voxelMaterial.Shader = shader;
+        _voxelMaterial.SetShaderParameter("texture_array", _textureManager.TextureArray);
+        
+        GD.Print("ChunkManager: Texture system and shader initialized.");
+        
+        // Add Debug UI
+        var debugUI = new DebugUI();
+        debugUI.Name = "DebugUI";
+        AddChild(debugUI);
 
         // Start the background worker
         _workerThread = new Thread(WorkerLoop);
@@ -260,6 +281,8 @@ public partial class ChunkManager : Node
         
         // Generate Mesh Data
         var meshData = GreedyMesher.GenerateMesh(chunk, neighbors);
+
+
         
         // ALWAYS enqueue, even if empty!
         // If the mesh is empty (e.g. fully underground), we still need to upload it
@@ -305,10 +328,23 @@ public partial class ChunkManager : Node
             arrays.Resize((int)Mesh.ArrayType.Max);
             arrays[(int)Mesh.ArrayType.Vertex] = data.Vertices;
             arrays[(int)Mesh.ArrayType.Normal] = data.Normals;
-            arrays[(int)Mesh.ArrayType.Color] = data.Colors;
+            arrays[(int)Mesh.ArrayType.TexUV] = data.UVs; // Pass UVs
+            
+            // Encode texture indices into Color array (R channel)
+            // Shader expects 0-1 range, so we divide by 255.0
+            var colors = new Color[data.TextureIndices.Length];
+            for (int i = 0; i < data.TextureIndices.Length; i++)
+            {
+                colors[i] = new Color(data.TextureIndices[i] / 255.0f, 0, 0, 1);
+            }
+            arrays[(int)Mesh.ArrayType.Color] = colors;
+            
             arrays[(int)Mesh.ArrayType.Index] = data.Indices;
             
             RenderingServer.MeshAddSurfaceFromArrays(chunk.MeshRid, RenderingServer.PrimitiveType.Triangles, arrays);
+            
+            // Apply Shader Material
+            RenderingServer.MeshSurfaceSetMaterial(chunk.MeshRid, 0, _voxelMaterial.GetRid());
         }
         
         // 2. Create Instance if needed
