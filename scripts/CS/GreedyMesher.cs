@@ -1,6 +1,7 @@
 using Godot;
 using System;
 using System.Collections.Generic;
+using System.Threading;
 
 /// <summary>
 /// Static helper class to generate meshes from ChunkData using Greedy Meshing.
@@ -30,14 +31,43 @@ public static class GreedyMesher
         new Vector3I(0, 1, 0)   // Top    (Y+)
     };
 
+    // Thread-local buffers to avoid allocations
+    private class MeshBuffers
+    {
+        public List<Vector3> Vertices = new List<Vector3>();
+        public List<Vector3> Normals = new List<Vector3>();
+        public List<Vector2> UVs = new List<Vector2>();
+        public List<Color> Colors = new List<Color>();
+        public List<int> Indices = new List<int>();
+        public List<int> TextureIndices = new List<int>();
+        public int[] Mask = new int[ChunkData.CHUNK_SIZE * ChunkData.CHUNK_SIZE];
+
+        public void Clear()
+        {
+            Vertices.Clear();
+            Normals.Clear();
+            UVs.Clear();
+            Colors.Clear();
+            Indices.Clear();
+            TextureIndices.Clear();
+            // Mask is fully overwritten each slice, so no need to clear it
+        }
+    }
+
+    private static readonly ThreadLocal<MeshBuffers> _threadBuffers = new ThreadLocal<MeshBuffers>(() => new MeshBuffers());
+
     public static MeshData GenerateMesh(ChunkData chunk, ChunkData[] neighbors)
     {
-        var vertices = new List<Vector3>();
-        var normals = new List<Vector3>();
-        var uvs = new List<Vector2>();
-        var colors = new List<Color>();
-        var indices = new List<int>();
-        var textureIndices = new List<int>();  // NEW: Texture layer index per vertex
+        var buffers = _threadBuffers.Value;
+        buffers.Clear();
+
+        var vertices = buffers.Vertices;
+        var normals = buffers.Normals;
+        var uvs = buffers.UVs;
+        var colors = buffers.Colors;
+        var indices = buffers.Indices;
+        var textureIndices = buffers.TextureIndices;
+        var mask = buffers.Mask;
 
         // We sweep over each axis (X, Y, Z)
         for (int d = 0; d < 3; d++)
@@ -49,9 +79,7 @@ public static class GreedyMesher
             int[] x = new int[3];
             int[] q = new int[3];
             
-            // Mask contains the block type of the face we are potentially meshing
-            // Size is 16 * 16 = 256
-            int[] mask = new int[ChunkData.CHUNK_SIZE * ChunkData.CHUNK_SIZE];
+            // Mask is reused from buffers
             
             q[d] = 1;
 
