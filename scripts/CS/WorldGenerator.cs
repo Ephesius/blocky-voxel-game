@@ -18,11 +18,9 @@ public partial class WorldGenerator : RefCounted
 	}
 	
 	// Generate voxel data for a chunk at the given position
-	public int[] GenerateChunkData(Vector3I chunkPos)
+	public void GenerateChunk(ChunkData chunk, Vector3I chunkPos)
 	{
 		var chunkSize = _config.ChunkSize;
-		var voxels = new int[chunkSize.X * chunkSize.Y * chunkSize.Z];
-		Array.Fill(voxels, (int)ChunkData.BlockType.AIR);
 		
 		// Calculate world offset for this chunk
 		int worldXOffset = chunkPos.X * chunkSize.X;
@@ -48,25 +46,21 @@ public partial class WorldGenerator : RefCounted
 					
 					if (worldY < height)
 					{
-						int index = GetIndex(x, y, z, chunkSize);
-						
 						// Determine block type based on depth
+						int blockType;
 						if (worldY == height - 1)
-							voxels[index] = (int)ChunkData.BlockType.GRASS;
+							blockType = (int)ChunkData.BlockType.GRASS;
 						else if (worldY > height - 4)
-							voxels[index] = (int)ChunkData.BlockType.DIRT;
+							blockType = (int)ChunkData.BlockType.DIRT;
 						else
-							voxels[index] = (int)ChunkData.BlockType.STONE;
+							blockType = (int)ChunkData.BlockType.STONE;
+							
+						chunk.SetVoxel(x, y, z, blockType);
 					}
 				}
 			}
 		}
-		
-		return voxels;
 	}
 	
-	private int GetIndex(int x, int y, int z, Vector3I chunkSize)
-	{
-		return x + (y * chunkSize.X) + (z * chunkSize.X * chunkSize.Y);
-	}
+
 }

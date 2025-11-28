@@ -299,23 +299,10 @@ public partial class ChunkManager : Node
     {
         // This runs on the background thread!
         // 1. Create Data
-        var data = _generator.GenerateChunkData(pos); // Returns int[] currently, need to adapt
-        
-        // Adapt old generator to new ChunkData (Temporary adapter until we rewrite generator)
         var chunkData = new ChunkData();
-        // For now, just fill with the data from the old generator
-        // In Phase 3 or 4 we will rewrite WorldGenerator to write directly to ChunkData
-        for (int x = 0; x < 16; x++)
-        {
-            for (int y = 0; y < 16; y++)
-            {
-                for (int z = 0; z < 16; z++)
-                {
-                    int index = x + (y * 16) + (z * 256);
-                    chunkData.SetVoxel(x, y, z, data[index]);
-                }
-            }
-        }
+        
+        // Generate directly into the chunk data (Zero Allocation!)
+        _generator.GenerateChunk(chunkData, pos);
 
         // 2. Store in WorldData
         // Dictionary is not thread-safe for writing, so we lock it
