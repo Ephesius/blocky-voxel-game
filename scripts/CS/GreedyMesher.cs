@@ -17,7 +17,7 @@ public static class GreedyMesher
         public Vector2[] UVs;
         public Color[] Colors;
         public int[] Indices;
-        public int[] TextureIndices;  // Texture layer index per vertex
+        public Vector3[] CollisionVertices; // Unrolled triangle soup for physics
     }
 
     // Direction vectors for the 6 faces
@@ -39,7 +39,7 @@ public static class GreedyMesher
         public List<Vector2> UVs = new List<Vector2>();
         public List<Color> Colors = new List<Color>();
         public List<int> Indices = new List<int>();
-        public List<int> TextureIndices = new List<int>();
+        public List<Vector3> CollisionVertices = new List<Vector3>();
         public int[] Mask = new int[ChunkData.CHUNK_SIZE * ChunkData.CHUNK_SIZE];
 
         public void Clear()
@@ -49,7 +49,7 @@ public static class GreedyMesher
             UVs.Clear();
             Colors.Clear();
             Indices.Clear();
-            TextureIndices.Clear();
+            CollisionVertices.Clear();
             // Mask is fully overwritten each slice, so no need to clear it
         }
     }
@@ -66,7 +66,7 @@ public static class GreedyMesher
         var uvs = buffers.UVs;
         var colors = buffers.Colors;
         var indices = buffers.Indices;
-        var textureIndices = buffers.TextureIndices;
+        var collisionVertices = buffers.CollisionVertices;
         var mask = buffers.Mask;
 
         // We sweep over each axis (X, Y, Z)
@@ -177,26 +177,31 @@ public static class GreedyMesher
                             {
                                 normal = new Vector3(q[0], q[1], q[2]);
                                 // Revert to original winding (Clockwise?) to ensure correct normal direction
-                                AddQuad(vertices, indices, v1, v4, v3, v2);
+                                AddQuad(vertices, indices, collisionVertices, v1, v4, v3, v2);
                             }
                             else // Back face
                             {
                                 normal = new Vector3(-q[0], -q[1], -q[2]);
                                 type = -type; // Restore positive type
-                                AddQuad(vertices, indices, v1, v2, v3, v4);
+                                AddQuad(vertices, indices, collisionVertices, v1, v2, v3, v4);
                             }
 
 
                             // Add attributes
+                            // Encode texture indices into Color array (R channel)
+                            // Shader expects 0-1 range, so we divide by 255.0
+                            int textureLayer = GetTextureLayerForBlockType(Math.Abs(type));
+                            Color encodedColor = new Color(textureLayer / 255.0f, 0, 0, 1);
+                            
                             for (int c = 0; c < 4; c++)
                             {
                                 normals.Add(normal);
-                                colors.Add(GetColor(type));  // Keep for fallback
+                                colors.Add(encodedColor); 
                             }
                             
                             // Calculate UVs for greedy quad: tile texture across width × height
                             // Pass 'd' (axis) and 'isPositive' to handle orientation correctly
-                            AddQuadUVsAndTextures(uvs, textureIndices, width, height, type, d, isPositive);
+                            AddQuadUVs(uvs, width, height, d, isPositive);
 
 
                             // Clear mask
@@ -226,13 +231,13 @@ public static class GreedyMesher
             Vertices = vertices.ToArray(),
             Normals = normals.ToArray(),
             UVs = uvs.ToArray(),
-            Colors = colors.ToArray(),  // Keep for fallback
+            Colors = colors.ToArray(),
             Indices = indices.ToArray(),
-            TextureIndices = textureIndices.ToArray()  // NEW
+            CollisionVertices = collisionVertices.ToArray()
         };
     }
 
-    private static void AddQuad(List<Vector3> verts, List<int> indices, Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4)
+    private static void AddQuad(List<Vector3> verts, List<int> indices, List<Vector3> collisionVerts, Vector3 v1, Vector3 v2, Vector3 v3, Vector3 v4)
     {
         int startIndex = verts.Count;
         verts.Add(v1);
@@ -246,6 +251,15 @@ public static class GreedyMesher
         indices.Add(startIndex);
         indices.Add(startIndex + 2);
         indices.Add(startIndex + 3);
+        
+        // Add unrolled triangles for collision
+        collisionVerts.Add(v1);
+        collisionVerts.Add(v2);
+        collisionVerts.Add(v3);
+        
+        collisionVerts.Add(v1);
+        collisionVerts.Add(v3);
+        collisionVerts.Add(v4);
     }
 
     private static Color GetColor(int type)
@@ -260,14 +274,11 @@ public static class GreedyMesher
     }
     
     /// <summary>
-    /// Adds UV coordinates and texture indices for a greedy-meshed quad.
+    /// Adds UV coordinates for a greedy-meshed quad.
     /// UVs tile the texture across the quad's width and height.
     /// </summary>
-    private static void AddQuadUVsAndTextures(List<Vector2> uvs, List<int> textureIndices, int width, int height, int blockType, int axis, bool isPositiveFace)
+    private static void AddQuadUVs(List<Vector2> uvs, int width, int height, int axis, bool isPositiveFace)
     {
-        // Determine texture layer from block type
-        // Note: blockType can be negative for back faces, so use Abs
-        int textureLayer = GetTextureLayerForBlockType(Math.Abs(blockType));
         
         float uSize = width;
         float vSize = height;
@@ -298,12 +309,6 @@ public static class GreedyMesher
             uvs.Add(new Vector2(uSize, 0));
             uvs.Add(new Vector2(uSize, vSize));
             uvs.Add(new Vector2(0, vSize));
-        }
-        
-        // Add texture layer index for all 4 vertices
-        for (int i = 0; i < 4; i++)
-        {
-            textureIndices.Add(textureLayer);
         }
     }
     

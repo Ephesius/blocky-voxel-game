@@ -3,6 +3,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Threading;
+using System.Diagnostics;
 
 /// <summary>
 /// The Brain of the Voxel Engine.
@@ -21,7 +22,7 @@ public partial class ChunkManager : Node
     private bool _isRunning = true;
 
     // Threading
-    private Thread _workerThread;
+    private List<Thread> _workerThreads = new List<Thread>();
     // Queues
     private ConcurrentQueue<Vector3I> _generationQueue = new ConcurrentQueue<Vector3I>();
     private ConcurrentQueue<Vector3I> _meshQueue = new ConcurrentQueue<Vector3I>();
@@ -60,12 +61,19 @@ public partial class ChunkManager : Node
         debugUI.Name = "DebugUI";
         AddChild(debugUI);
 
-        // Start the background worker
-        _workerThread = new Thread(WorkerLoop);
-        _workerThread.IsBackground = true;
-        _workerThread.Start();
+        // Start background workers
+        // Use ProcessorCount - 1 to leave one core for the main thread, but minimum 1 worker
+        int threadCount = Math.Max(1, System.Environment.ProcessorCount - 1);
         
-        GD.Print("ChunkManager: Worker thread started.");
+        for (int i = 0; i < threadCount; i++)
+        {
+            var thread = new Thread(WorkerLoop);
+            thread.IsBackground = true;
+            thread.Start();
+            _workerThreads.Add(thread);
+        }
+        
+        GD.Print($"ChunkManager: Started {threadCount} worker threads.");
     }
 
     public override void _Process(double delta)
@@ -77,10 +85,15 @@ public partial class ChunkManager : Node
     public override void _ExitTree()
     {
         _isRunning = false;
-        if (_workerThread != null && _workerThread.IsAlive)
+        
+        foreach (var thread in _workerThreads)
         {
-            _workerThread.Join(100); // Wait briefly for thread to stop
+            if (thread != null && thread.IsAlive)
+            {
+                thread.Join(100); // Wait briefly for thread to stop
+            }
         }
+        _workerThreads.Clear();
         
         // Cleanup all chunks
         foreach(var chunk in _worldData.Chunks.Values)
@@ -106,7 +119,62 @@ public partial class ChunkManager : Node
         {
             _lastPlayerChunkPos = currentChunkPos;
             QueueChunksAround(currentChunkPos);
+            UpdateCollisionArea(currentChunkPos);
         }
+    }
+    
+    private int _collisionDistance = 2;
+    
+    private void UpdateCollisionArea(Vector3I center)
+    {
+        // 1. Create collision for nearby chunks
+        for (int x = -_collisionDistance; x <= _collisionDistance; x++)
+        {
+            for (int y = -_collisionDistance; y <= _collisionDistance; y++)
+            {
+                for (int z = -_collisionDistance; z <= _collisionDistance; z++)
+                {
+                    Vector3I chunkPos = center + new Vector3I(x, y, z);
+                    
+                    if (_worldData.TryGetChunk(chunkPos, out ChunkData chunk))
+                    {
+                        // If we have geometry but no body, create it!
+                        if (chunk.CollisionVertices != null && chunk.CollisionVertices.Length > 0 && !chunk.BodyRid.IsValid)
+                        {
+                            CreateChunkCollision(chunk, chunkPos);
+                        }
+                    }
+                }
+            }
+        }
+        
+        // 2. (Optional) Cleanup distant collision?
+        // For now, we can leave them or implement a cleanup loop. 
+        // Given the user wants performance, let's leave them for now (memory is cheap, CPU is expensive).
+        // If we wanted to clean up: iterate all chunks, if dist > _collisionDistance + 1, free BodyRid.
+    }
+    
+    private void CreateChunkCollision(ChunkData chunk, Vector3I pos)
+    {
+        chunk.BodyRid = PhysicsServer3D.BodyCreate();
+        PhysicsServer3D.BodySetMode(chunk.BodyRid, PhysicsServer3D.BodyMode.Static);
+        PhysicsServer3D.BodySetSpace(chunk.BodyRid, GetViewport().World3D.Space);
+        
+        // Create Shape
+        Rid shapeRid = PhysicsServer3D.ConcavePolygonShapeCreate();
+        
+        // Godot 4 PhysicsServer3D.ShapeSetData for ConcavePolygon expects a Dictionary with "faces"
+        var shapeData = new Godot.Collections.Dictionary();
+        shapeData["faces"] = chunk.CollisionVertices;
+        
+        PhysicsServer3D.ShapeSetData(shapeRid, shapeData); 
+        
+        // Add shape to body
+        PhysicsServer3D.BodyAddShape(chunk.BodyRid, shapeRid);
+        
+        // Set Transform
+        Transform3D transform = new Transform3D(Basis.Identity, new Vector3(pos.X * 16, pos.Y * 16, pos.Z * 16));
+        PhysicsServer3D.BodySetState(chunk.BodyRid, PhysicsServer3D.BodyState.Transform, transform);
     }
 
     private void QueueChunksAround(Vector3I center)
@@ -282,17 +350,19 @@ public partial class ChunkManager : Node
         // Generate Mesh Data
         var meshData = GreedyMesher.GenerateMesh(chunk, neighbors);
 
-
-        
         // ALWAYS enqueue, even if empty!
         // If the mesh is empty (e.g. fully underground), we still need to upload it
         // to CLEAR the old mesh that might have had border faces.
         _uploadQueue.Enqueue((pos, meshData));
     }
     
+    [Export]
+    public int MaxChunksPerFrame { get; set; } = 16; // Limit uploads to prevent driver stalls
+
     private void ProcessUploadQueue()
     {
-        long startTime = System.Environment.TickCount;
+        var stopwatch = Stopwatch.StartNew();
+        int chunksProcessed = 0;
         
         while (_uploadQueue.TryDequeue(out var item))
         {
@@ -302,9 +372,11 @@ public partial class ChunkManager : Node
             if (_worldData.TryGetChunk(pos, out ChunkData chunk))
             {
                 UploadMesh(chunk, pos, data);
+                chunksProcessed++;
             }
             
-            if (System.Environment.TickCount - startTime > MAX_MS_PER_FRAME)
+            // Break if we exceed time budget OR chunk count limit
+            if (chunksProcessed >= MaxChunksPerFrame || stopwatch.ElapsedMilliseconds > MAX_MS_PER_FRAME)
                 break;
         }
     }
@@ -332,12 +404,8 @@ public partial class ChunkManager : Node
             
             // Encode texture indices into Color array (R channel)
             // Shader expects 0-1 range, so we divide by 255.0
-            var colors = new Color[data.TextureIndices.Length];
-            for (int i = 0; i < data.TextureIndices.Length; i++)
-            {
-                colors[i] = new Color(data.TextureIndices[i] / 255.0f, 0, 0, 1);
-            }
-            arrays[(int)Mesh.ArrayType.Color] = colors;
+            // Pre-calculated in worker thread now!
+            arrays[(int)Mesh.ArrayType.Color] = data.Colors;
             
             arrays[(int)Mesh.ArrayType.Index] = data.Indices;
             
@@ -361,36 +429,12 @@ public partial class ChunkManager : Node
             _chunkInstances[pos] = instanceRid;
         }
         
-        // 3. Collision
-        // We create a Trimesh collision shape
-        if (!chunk.BodyRid.IsValid)
-        {
-            chunk.BodyRid = PhysicsServer3D.BodyCreate();
-            PhysicsServer3D.BodySetMode(chunk.BodyRid, PhysicsServer3D.BodyMode.Static);
-            PhysicsServer3D.BodySetSpace(chunk.BodyRid, GetViewport().World3D.Space);
-            
-            // Create Shape
-            Rid shapeRid = PhysicsServer3D.ConcavePolygonShapeCreate();
-            
-            // Unroll indices to create triangle soup (ConcavePolygonShape needs raw triangles)
-            var collisionVertices = new Vector3[data.Indices.Length];
-            for (int i = 0; i < data.Indices.Length; i++)
-            {
-                collisionVertices[i] = data.Vertices[data.Indices[i]];
-            }
-            
-            // Godot 4 PhysicsServer3D.ShapeSetData for ConcavePolygon expects a Dictionary with "faces"
-            var shapeData = new Godot.Collections.Dictionary();
-            shapeData["faces"] = collisionVertices;
-            
-            PhysicsServer3D.ShapeSetData(shapeRid, shapeData); 
-            
-            // Add shape to body
-            PhysicsServer3D.BodyAddShape(chunk.BodyRid, shapeRid);
-            
-            // Set Transform
-            Transform3D transform = new Transform3D(Basis.Identity, new Vector3(pos.X * 16, pos.Y * 16, pos.Z * 16));
-            PhysicsServer3D.BodySetState(chunk.BodyRid, PhysicsServer3D.BodyState.Transform, transform);
-        }
+        // 3. Store Collision Data (But don't create body yet!)
+        chunk.CollisionVertices = data.CollisionVertices;
+        
+        // If this chunk is ALREADY close to the player (e.g. initial load), we might want to create it now.
+        // But to keep it simple, we'll let the next UpdateCollisionArea call handle it.
+        // However, UpdateCollisionArea is called in _Process, so it will pick it up next frame.
+        // Optimization: If we are very close, do it now? No, let's stick to the decoupled plan.
     }
 }

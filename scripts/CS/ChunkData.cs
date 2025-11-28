@@ -106,6 +106,10 @@ public class ChunkData
     public Rid MeshRid { get; set; }
     public Rid BodyRid { get; set; } // For collision
     public bool HasMesh { get; set; } = false;
+    
+    // Phase 4: Decoupled Physics
+    // We store the raw collision geometry here so we can generate the BodyRid lazily
+    public Vector3[] CollisionVertices { get; set; }
 
     public void Dispose()
     {
@@ -121,5 +125,7 @@ public class ChunkData
             PhysicsServer3D.FreeRid(BodyRid);
             BodyRid = new Rid();
         }
+        
+        CollisionVertices = null; // Help GC
     }
 }
