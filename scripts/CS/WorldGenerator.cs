@@ -9,6 +9,7 @@ public partial class WorldGenerator : RefCounted
 	private FastNoiseLite _temperatureNoise;
 	private FastNoiseLite _humidityNoise;
 	private FastNoiseLite _terrainTypeNoise;
+	private Random _foliageRandom;
 	
 	public WorldGenerator(WorldConfig config)
 	{
@@ -32,6 +33,9 @@ public partial class WorldGenerator : RefCounted
 		_terrainTypeNoise = new FastNoiseLite();
 		_terrainTypeNoise.Seed = config.SeedValue + 3;
 		_terrainTypeNoise.Frequency = config.TerrainTypeFrequency;
+		
+		// Initialize foliage random generator
+		_foliageRandom = new Random(config.FoliageSeed);
 	}
 	
 	// Generate voxel data for a chunk at the given position
@@ -80,6 +84,9 @@ public partial class WorldGenerator : RefCounted
 						chunk.SetVoxel(x, y, z, blockType);
 					}
 				}
+				
+				// Place foliage on the surface
+				PlaceFoliage(chunk, biome.Type, x, z, height, worldYOffset, worldX, worldZ);
 			}
 		}
 	}
@@ -199,6 +206,38 @@ public partial class WorldGenerator : RefCounted
 			float t = Mathf.InverseLerp(0.2f, 1.0f, terrainTypeValue);
 			return Mathf.Lerp(_config.HillsHeightMultiplier, _config.MountainHeightMultiplier, 0.5f + t * 0.5f);
 		}
+	}
+	
+	private void PlaceFoliage(ChunkData chunk, BiomeData.BiomeType biomeType, int x, int z, int surfaceHeight, int chunkYOffset, int worldX, int worldZ)
+	{
+		// Skip if density is 0
+		if (_config.FoliageDensity <= 0)
+			return;
+		
+		// Check if surface height is actually within this chunk's Y range
+		// Chunk contains Y values from chunkYOffset to chunkYOffset + CHUNK_SIZE - 1
+		if (surfaceHeight < chunkYOffset || surfaceHeight >= chunkYOffset + ChunkData.CHUNK_SIZE)
+			return; // Surface is not in this chunk, skip foliage
+		
+		// Calculate local Y position within the chunk
+		int localY = surfaceHeight - chunkYOffset;
+		
+		// Deterministic random based on world position
+		int seed = worldX * 73856093 ^ worldZ * 19349663;
+		var localRandom = new Random(seed ^ _config.FoliageSeed);
+		
+		// Roll for foliage placement
+		if (localRandom.NextDouble() > _config.FoliageDensity)
+			return;
+		
+		// Get foliage types for this biome
+		var (foliageType1, foliageType2) = FoliageData.GetFoliageForBiome(biomeType);
+		
+		// Randomly pick one of the two foliage types
+		int foliageType = localRandom.Next(0, 2) == 0 ? (int)foliageType1 : (int)foliageType2;
+		
+		// Place foliage at surface height
+		chunk.FoliagePlacements.Add((new Vector3I(x, localY, z), foliageType));
 	}
 
 }

@@ -41,6 +41,11 @@ public partial class WorldConfig : Resource
 	[Export] public float HillsHeightMultiplier { get; set; } = 16.0f;
 	[Export] public float MountainHeightMultiplier { get; set; } = 250.0f;
 	
+	// Foliage Generation
+	[ExportGroup("Foliage Generation")]
+	[Export(PropertyHint.Range, "0.0,1.0")] public float FoliageDensity { get; set; } = 0.3f;
+	[Export] public int FoliageSeed { get; set; } = 54321;
+	
 	// Calculated properties
 	public Vector3I GetWorldSizeInChunks()
 	{

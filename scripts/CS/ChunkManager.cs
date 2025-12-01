@@ -27,7 +27,7 @@ public partial class ChunkManager : Node
     // Queues
     private ConcurrentQueue<Vector3I> _generationQueue = new ConcurrentQueue<Vector3I>();
     private ConcurrentQueue<Vector3I> _meshQueue = new ConcurrentQueue<Vector3I>();
-    private ConcurrentQueue<(Vector3I, GreedyMesher.MeshData)> _uploadQueue = new ConcurrentQueue<(Vector3I, GreedyMesher.MeshData)>();
+    private ConcurrentQueue<(Vector3I, GreedyMesher.MeshData, FoliageMesher.MeshData)> _uploadQueue = new ConcurrentQueue<(Vector3I, GreedyMesher.MeshData, FoliageMesher.MeshData)>();
     
     // We use a HashSet to quickly check if a chunk is already queued to avoid duplicates
     private HashSet<Vector3I> _queuedChunks = new HashSet<Vector3I>();
@@ -39,6 +39,7 @@ public partial class ChunkManager : Node
     // Rendering
     private TextureManager _textureManager;
     private ShaderMaterial _voxelMaterial;
+    private ShaderMaterial _foliageMaterial;
 
     public override void _Ready()
     {
@@ -54,6 +55,15 @@ public partial class ChunkManager : Node
         _voxelMaterial = new ShaderMaterial();
         _voxelMaterial.Shader = shader;
         _voxelMaterial.SetShaderParameter("texture_array", _textureManager.TextureArray);
+        
+        // Load foliage textures
+        _textureManager.LoadFoliageTextures("res://assets/textures/ground_foliage");
+        
+        // Initialize Foliage Shader Material
+        var foliageShader = GD.Load<Shader>("res://shaders/voxel_foliage.gdshader");
+        _foliageMaterial = new ShaderMaterial();
+        _foliageMaterial.Shader = foliageShader;
+        _foliageMaterial.SetShaderParameter("texture_array", _textureManager.FoliageTextureArray);
         
         GD.Print("ChunkManager: Texture system and shader initialized.");
         
@@ -338,10 +348,13 @@ public partial class ChunkManager : Node
         // Generate Mesh Data
         var meshData = GreedyMesher.GenerateMesh(chunk, neighbors);
 
+        // Generate Foliage Mesh Data
+        var foliageMeshData = FoliageMesher.GenerateMesh(chunk.FoliagePlacements);
+
         // ALWAYS enqueue, even if empty!
         // If the mesh is empty (e.g. fully underground), we still need to upload it
         // to CLEAR the old mesh that might have had border faces.
-        _uploadQueue.Enqueue((pos, meshData));
+        _uploadQueue.Enqueue((pos, meshData, foliageMeshData));
     }
     
     [Export]
@@ -356,10 +369,11 @@ public partial class ChunkManager : Node
         {
             Vector3I pos = item.Item1;
             GreedyMesher.MeshData data = item.Item2;
+            FoliageMesher.MeshData foliageData = item.Item3;
             
             if (_worldData.TryGetChunk(pos, out ChunkData chunk))
             {
-                UploadMesh(chunk, pos, data);
+                UploadMesh(chunk, pos, data, foliageData);
                 chunksProcessed++;
             }
             
@@ -369,9 +383,9 @@ public partial class ChunkManager : Node
         }
     }
     
-    private void UploadMesh(ChunkData chunk, Vector3I pos, GreedyMesher.MeshData data)
+     private void UploadMesh(ChunkData chunk, Vector3I pos, GreedyMesher.MeshData data, FoliageMesher.MeshData foliageData)
     {
-        // 1. Create/Update Mesh RID
+        // 1. Create/Update Terrain Mesh RID
         if (!chunk.MeshRid.IsValid)
         {
             chunk.MeshRid = RenderingServer.MeshCreate();
@@ -403,7 +417,34 @@ public partial class ChunkManager : Node
             RenderingServer.MeshSurfaceSetMaterial(chunk.MeshRid, 0, _voxelMaterial.GetRid());
         }
         
-        // 2. Create Instance if needed
+        // 2. Create/Update Foliage Mesh RID
+        if (!chunk.FoliageMeshRid.IsValid)
+        {
+            chunk.FoliageMeshRid = RenderingServer.MeshCreate();
+        }
+        else
+        {
+            RenderingServer.MeshClear(chunk.FoliageMeshRid);
+        }
+        
+        // Set Foliage Surface
+        if (foliageData.Vertices != null && foliageData.Vertices.Length > 0)
+        {
+            var foliageArrays = new Godot.Collections.Array();
+            foliageArrays.Resize((int)Mesh.ArrayType.Max);
+            foliageArrays[(int)Mesh.ArrayType.Vertex] = foliageData.Vertices;
+            foliageArrays[(int)Mesh.ArrayType.Normal] = foliageData.Normals;
+            foliageArrays[(int)Mesh.ArrayType.TexUV] = foliageData.UVs;
+            foliageArrays[(int)Mesh.ArrayType.Color] = foliageData.Colors;
+            foliageArrays[(int)Mesh.ArrayType.Index] = foliageData.Indices;
+            
+            RenderingServer.MeshAddSurfaceFromArrays(chunk.FoliageMeshRid, RenderingServer.PrimitiveType.Triangles, foliageArrays);
+            
+            // Apply Foliage Shader Material
+            RenderingServer.MeshSurfaceSetMaterial(chunk.FoliageMeshRid, 0, _foliageMaterial.GetRid());
+        }
+        
+        // 3. Create Instance if needed
         if (!_chunkInstances.ContainsKey(pos))
         {
             Rid instanceRid = RenderingServer.InstanceCreate();
@@ -415,9 +456,19 @@ public partial class ChunkManager : Node
             RenderingServer.InstanceSetTransform(instanceRid, transform);
             
             _chunkInstances[pos] = instanceRid;
+            
+            // Create foliage instance if foliage exists
+            if (foliageData.Vertices != null && foliageData.Vertices.Length > 0)
+            {
+                Rid foliageInstanceRid = RenderingServer.InstanceCreate();
+                RenderingServer.InstanceSetBase(foliageInstanceRid, chunk.FoliageMeshRid);
+                RenderingServer.InstanceSetScenario(foliageInstanceRid, GetViewport().World3D.Scenario);
+                RenderingServer.InstanceSetTransform(foliageInstanceRid, transform);
+                // Note: We're not explicitly tracking foliage instances separately since they're tied to chunks
+            }
         }
         
-        // 3. Store Collision Data (But don't create body yet!)
+        // 4. Store Collision Data (But don't create body yet!!)
         chunk.CollisionVertices = data.CollisionVertices;
         
         // If this chunk is ALREADY close to the player (e.g. initial load), we might want to create it now.

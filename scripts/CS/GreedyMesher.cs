@@ -323,6 +323,9 @@ public static class GreedyMesher
             1 => 0, // DIRT -> Layer 0
             2 => 1, // GRASS -> Layer 1
             3 => 2, // STONE -> Layer 2
+            4 => 3, // SAND -> Layer 3
+            5 => 4, // SNOW -> Layer 4
+            6 => 5, // ICE -> Layer 5
             _ => 0  // Default to dirt for unknown types
         };
     }

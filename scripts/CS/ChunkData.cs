@@ -107,12 +107,16 @@ public class ChunkData
     
     // Phase 3: Renderer Resources
     public Rid MeshRid { get; set; }
+    public Rid FoliageMeshRid { get; set; } // Separate mesh for transparent foliage
     public Rid BodyRid { get; set; } // For collision
     public bool HasMesh { get; set; } = false;
     
     // Phase 4: Decoupled Physics
     // We store the raw collision geometry here so we can generate the BodyRid lazily
     public Vector3[] CollisionVertices { get; set; }
+    
+    // Foliage data
+    public List<(Vector3I position, int foliageType)> FoliagePlacements { get; set; } = new List<(Vector3I, int)>();
 
     public void Dispose()
     {
@@ -129,6 +133,13 @@ public class ChunkData
             BodyRid = new Rid();
         }
         
+        if (FoliageMeshRid.IsValid)
+        {
+            RenderingServer.FreeRid(FoliageMeshRid);
+            FoliageMeshRid = new Rid();
+        }
+        
         CollisionVertices = null; // Help GC
+        FoliagePlacements?.Clear();
     }
 }

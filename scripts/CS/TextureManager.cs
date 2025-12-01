@@ -9,6 +9,7 @@ using System.Collections.Generic;
 public partial class TextureManager : RefCounted
 {
 	public Texture2DArray TextureArray { get; private set; }
+	public Texture2DArray FoliageTextureArray { get; private set; }
 	
 	private Dictionary<ChunkData.BlockType, int> _blockToLayer = new Dictionary<ChunkData.BlockType, int>();
 	private const int TEXTURE_SIZE = 16; // All textures must be 16x16
@@ -67,6 +68,52 @@ public partial class TextureManager : RefCounted
 		{
 			GD.PrintErr("TextureManager: No textures loaded! Using fallback.");
 			CreateFallbackTexture();
+		}
+	}
+	
+	/// <summary>
+	/// Loads foliage textures from the specified directory and builds a Texture2DArray.
+	/// </summary>
+	public void LoadFoliageTextures(string texturePath)
+	{
+		GD.Print($"TextureManager: Loading foliage textures from {texturePath}");
+		
+		var loadedImages = new List<Image>();
+		
+		// Load foliage textures in order (matching FoliageData.FoliageType enum)
+		foreach (var kvp in FoliageData.FoliageTextures)
+		{
+			var foliageType = kvp.Key;
+			var filename = kvp.Value;
+			var fullPath = $"{texturePath}/{filename}";
+			
+			var image = LoadAndValidateTexture(fullPath);
+			if (image != null)
+			{
+				loadedImages.Add(image);
+				GD.Print($"  Loaded {filename} -> Layer {(int)foliageType}");
+			}
+			else
+			{
+				GD.PrintErr($"  Failed to load {filename} for {foliageType}");
+				// Add a fallback image to maintain index alignment
+				loadedImages.Add(CreateFallbackImage());
+			}
+		}
+		
+		// Build Texture2DArray for foliage
+		if (loadedImages.Count > 0)
+		{
+			FoliageTextureArray = new Texture2DArray();
+			var imageData = new Godot.Collections.Array<Image>();
+			foreach (var img in loadedImages)
+				imageData.Add(img);
+			FoliageTextureArray.CreateFromImages(imageData);
+			GD.Print($"TextureManager: FoliageTextureArray created with {loadedImages.Count} layers");
+		}
+		else
+		{
+			GD.PrintErr("TextureManager: No foliage textures loaded!");
 		}
 	}
 	
@@ -153,13 +200,12 @@ public partial class TextureManager : RefCounted
 	}
 	
 	/// <summary>
-	/// Creates a fallback magenta checkerboard texture if loading fails.
+	/// Creates a single fallback image (magenta/black checkerboard).
 	/// </summary>
-	private void CreateFallbackTexture()
+	private Image CreateFallbackImage()
 	{
 		var fallbackImage = Image.Create(TEXTURE_SIZE, TEXTURE_SIZE, false, Image.Format.Rgba8);
 		
-		// Create magenta checkerboard pattern
 		for (int y = 0; y < TEXTURE_SIZE; y++)
 		{
 			for (int x = 0; x < TEXTURE_SIZE; x++)
@@ -169,6 +215,16 @@ public partial class TextureManager : RefCounted
 				fallbackImage.SetPixel(x, y, color);
 			}
 		}
+		
+		return fallbackImage;
+	}
+	
+	/// <summary>
+	/// Creates a fallback magenta checkerboard texture if loading fails.
+	/// </summary>
+	private void CreateFallbackTexture()
+	{
+		var fallbackImage = CreateFallbackImage();
 		
 		var imageData = new Godot.Collections.Array<Image> { fallbackImage };
 		TextureArray = new Texture2DArray();
