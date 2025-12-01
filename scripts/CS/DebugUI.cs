@@ -43,6 +43,15 @@ public partial class DebugUI : Control
         text += $"Facing: {dirStr}\n";
         text += $"Chunk: {Mathf.FloorToInt(pos.X / 16)}, {Mathf.FloorToInt(pos.Y / 16)}, {Mathf.FloorToInt(pos.Z / 16)}\n";
         
+        // Biome Info
+        var chunkManager = GetParentOrNull<ChunkManager>();
+        if (chunkManager != null && chunkManager.Generator != null)
+        {
+            var climate = chunkManager.Generator.GetClimateData((int)pos.X, (int)pos.Z);
+            text += $"\nBiome: {climate.Biome}\n";
+            text += $"Temp: {climate.Temperature:F3} | Hum: {climate.Humidity:F3}";
+        }
+        
         _label.Text = text;
     }
     

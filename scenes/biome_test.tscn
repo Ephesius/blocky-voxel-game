@@ -1,0 +1,6 @@
+[gd_scene load_steps=2 format=3 uid="uid://ch361v05r1wi6"]
+
+[ext_resource type="Script" uid="uid://ccd5tq3jon5si" path="res://scripts/CS/BiomeTest.cs" id="1_lapi3"]
+
+[node name="BiomeTest" type="Node"]
+script = ExtResource("1_lapi3")

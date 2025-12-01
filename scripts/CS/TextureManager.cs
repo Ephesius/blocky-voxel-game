@@ -26,7 +26,10 @@ public partial class TextureManager : RefCounted
 		{
 			{ ChunkData.BlockType.DIRT, "dirt.png" },
 			{ ChunkData.BlockType.GRASS, "grass.png" },
-			{ ChunkData.BlockType.STONE, "stone.png" }
+			{ ChunkData.BlockType.STONE, "stone.png" },
+			{ ChunkData.BlockType.SAND, "sand.png" },
+			{ ChunkData.BlockType.SNOW, "snow.png" },
+			{ ChunkData.BlockType.ICE, "ice.png" }
 			// AIR doesn't need a texture
 		};
 		

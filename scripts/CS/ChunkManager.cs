@@ -18,6 +18,7 @@ public partial class ChunkManager : Node
     // State
     private WorldData _worldData;
     private WorldGenerator _generator;
+    public WorldGenerator Generator => _generator;
     private Vector3I _lastPlayerChunkPos = new Vector3I(int.MaxValue, int.MaxValue, int.MaxValue);
     private bool _isRunning = true;
 

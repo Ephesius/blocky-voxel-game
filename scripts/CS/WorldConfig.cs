@@ -15,10 +15,31 @@ public partial class WorldConfig : Resource
 	
 	// Terrain generation settings
 	[ExportGroup("Terrain Generation")]
-	[Export] public int SeedValue { get; set; } = 12345;
-	[Export] public float NoiseFrequency { get; set; } = 0.02f;
+	[Export] public int SeedValue { get; set; } = 23456;
+	[Export] public float NoiseFrequency { get; set; } = 0.005f;
 	[Export] public float TerrainHeightMultiplier { get; set; } = 24.0f;
 	[Export] public float BaseHeight { get; set; } = 64.0f; // Base terrain height in blocks
+	
+	// Climate Generation
+	[ExportGroup("Climate Generation")]
+	[Export] public float TemperatureFrequency { get; set; } = 0.005f;
+	[Export] public float HumidityFrequency { get; set; } = 0.005f;
+	[Export] public int EquatorZ { get; set; } = 0;
+	[Export] public float TemperatureDropPerBlock { get; set; } = 0.0008f; // How much temp drops per block from equator
+	[Export] public float GlobalTemperatureOffset { get; set; } = 0.0f;
+	
+	// Thresholds
+	[ExportGroup("Climate Thresholds")]
+	[Export] public float TempColdThreshold { get; set; } = 0.3f;
+	[Export] public float TempHotThreshold { get; set; } = 0.7f;
+	[Export] public float HumidityDryThreshold { get; set; } = 0.4f;
+	
+	// Terrain Variation
+	[ExportGroup("Terrain Variation")]
+	[Export] public float TerrainTypeFrequency { get; set; } = 0.005f;
+	[Export] public float FlatlandHeightMultiplier { get; set; } = 4.0f;
+	[Export] public float HillsHeightMultiplier { get; set; } = 16.0f;
+	[Export] public float MountainHeightMultiplier { get; set; } = 250.0f;
 	
 	// Calculated properties
 	public Vector3I GetWorldSizeInChunks()
